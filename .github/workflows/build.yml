@@ -50,6 +50,18 @@ jobs:
           restore-keys: |
             voice-${{ inputs.lang }}-${{ matrix.shard }}-
 
+      # Картинки предметов не лежат в репозитории: они скачиваются из открытого
+      # набора Noto Emoji по списку соответствий. Так репозиторий остаётся
+      # лёгким, а список правится в одном месте.
+      - name: Кэш картинок
+        uses: actions/cache@v4
+        with:
+          path: video/assets/objects
+          key: objects-${{ hashFiles('video/fetch-art.py') }}
+
+      - name: Картинки к словам
+        run: python video/fetch-art.py
+
       - name: Расшифровать план
         env:
           PLAN_KEY: ${{ secrets.PLAN_KEY }}

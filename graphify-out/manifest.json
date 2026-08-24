@@ -5,18 +5,18 @@
     "semantic_hash": ""
   },
   "video/art.py": {
-    "mtime": 1787566845.0882163,
-    "ast_hash": "5cefbde6b60b3ffdcff6c422ae8f4d04",
+    "mtime": 1787569165.6305192,
+    "ast_hash": "0bca3061cb291a0685ee2a06a6bd08bd",
     "semantic_hash": ""
   },
   "video/mascot.py": {
-    "mtime": 1787566845.08886,
+    "mtime": 1787569165.631179,
     "ast_hash": "c0e60759d1fe767408495f2ff914cd1d",
     "semantic_hash": ""
   },
   "video/render.py": {
-    "mtime": 1787566845.087722,
-    "ast_hash": "81cb9997e14c386e0c3bd68c93eb9429",
+    "mtime": 1787569165.6297243,
+    "ast_hash": "ff085f8f456ce57efbacadcec822935c",
     "semantic_hash": ""
   },
   ".github/workflows/build.yml": {
