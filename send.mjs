@@ -43,8 +43,19 @@ async function send(file) {
   form.append("supports_streaming", "true");
   form.append("video", new Blob([readFileSync(path.join(OUT, file))], { type: "video/mp4" }), file);
 
-  const response = await fetch(`https://api.telegram.org/bot${TOKEN}/sendVideo`, { method: "POST", body: form });
-  const result = await response.json();
+  // Десять машин шлют в один канал одновременно, и Telegram отбивает часть
+  // файлов по частоте. Он же говорит, сколько ждать, поэтому ждём именно
+  // столько и пробуем снова: иначе выпуск просто теряется.
+  let result;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const response = await fetch(`https://api.telegram.org/bot${TOKEN}/sendVideo`, { method: "POST", body: form });
+    result = await response.json();
+    if (result.ok) break;
+    const wait = result.parameters?.retry_after;
+    if (!wait) break;
+    console.log(`… ${file}: жду ${wait} с и повторяю`);
+    await new Promise((resolve) => setTimeout(resolve, (wait + 2) * 1000));
+  }
   if (!result.ok) {
     console.log(`✗ ${file}: ${result.description}`);
     return false;
