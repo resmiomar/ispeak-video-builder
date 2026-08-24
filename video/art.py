@@ -394,3 +394,801 @@ def ease_out_back(t):
     t = max(0.0, min(1.0, t))
     c1, c3 = 1.70158, 2.70158
     return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2
+
+
+# ─────────────────────────────── фоны-сцены
+#
+# Раньше фон был мягкими пятнами, одинаковыми для всех выпусков: урок про
+# буквы, про слова и про правило выглядели одним и тем же экраном. Комната
+# задаёт выпуску место: буквы идут в классе, слова дома, правило у доски.
+#
+# Сцены рисуются кодом, а не лежат картинками, по двум причинам: облачная
+# сборка тогда не тянет за собой мегабайты файлов, и фон подстраивается под
+# цвет темы возраста, а не спорит с ним.
+SCENE_INK = {
+    "light": {"wall": (238, 240, 250), "far": (222, 227, 242), "near": (205, 213, 235),
+              "warm": (250, 236, 205), "board": (196, 214, 205), "line": (180, 190, 214)},
+    "bands": {"wall": (17, 25, 58), "far": (23, 33, 74), "near": (30, 44, 96),
+              "warm": (46, 40, 82), "board": (28, 54, 60), "line": (40, 56, 112)},
+}
+
+
+def _window(d, x, y, w, h, tone):
+    """Окно: рама и свет. Одно окно делает стену комнатой, а не заливкой."""
+    d.rounded_rectangle([x, y, x + w, y + h], radius=22, fill=tone["far"])
+    d.rounded_rectangle([x + 14, y + 14, x + w - 14, y + h - 14], radius=14, fill=tone["warm"])
+    d.line([x + w / 2, y + 14, x + w / 2, y + h - 14], fill=tone["far"], width=10)
+    d.line([x + 14, y + h / 2, x + w - 14, y + h / 2], fill=tone["far"], width=10)
+
+
+def scene_background(name, size, age, theme):
+    """Комната по имени фона. Незнакомое имя возвращает None: тогда рисуется
+    обычный мягкий фон, и новый диалог не ломает сборку."""
+    if name not in ("class", "home", "board"):
+        return None
+    w, h = size
+    light = theme.get("hero_x", 0) > 900
+    tone = SCENE_INK["light" if light else "bands"]
+    img = Image.new("RGB", (w, h), tone["wall"])
+    d = ImageDraw.Draw(img)
+
+    if name == "class":
+        # Класс: доска на стене, ряд парт внизу, окно сбоку.
+        d.rectangle([0, h * 0.72, w, h], fill=tone["near"])
+        d.rounded_rectangle([w * 0.06, h * 0.10, w * 0.52, h * 0.52], radius=18, fill=tone["board"])
+        d.rounded_rectangle([w * 0.08, h * 0.50, w * 0.50, h * 0.53], radius=8, fill=tone["far"])
+        for index in range(3):
+            x = w * (0.10 + index * 0.30)
+            d.rounded_rectangle([x, h * 0.78, x + w * 0.22, h * 0.83], radius=10, fill=tone["far"])
+            d.rectangle([x + 16, h * 0.83, x + 30, h * 0.95], fill=tone["far"])
+            d.rectangle([x + w * 0.22 - 30, h * 0.83, x + w * 0.22 - 16, h * 0.95], fill=tone["far"])
+        _window(d, w * 0.64, h * 0.12, w * 0.24, h * 0.34, tone)
+
+    elif name == "home":
+        # Дом: окно, лампа, ковёр. Мебель низкая, чтобы не спорить с текстом.
+        d.rectangle([0, h * 0.74, w, h], fill=tone["near"])
+        _window(d, w * 0.08, h * 0.14, w * 0.26, h * 0.36, tone)
+        d.rounded_rectangle([w * 0.60, h * 0.60, w * 0.92, h * 0.76], radius=26, fill=tone["far"])
+        d.rounded_rectangle([w * 0.63, h * 0.52, w * 0.72, h * 0.62], radius=18, fill=tone["warm"])
+        d.ellipse([w * 0.30, h * 0.84, w * 0.72, h * 0.96], fill=tone["far"])
+
+    else:
+        # Доска: почти весь кадр это доска, потому что правило пишут на ней.
+        d.rectangle([0, h * 0.86, w, h], fill=tone["near"])
+        d.rounded_rectangle([w * 0.03, h * 0.05, w * 0.97, h * 0.84], radius=26, fill=tone["board"])
+        d.rounded_rectangle([w * 0.05, h * 0.07, w * 0.95, h * 0.82], radius=20, fill=tone["board"])
+        d.rounded_rectangle([w * 0.30, h * 0.84, w * 0.70, h * 0.87], radius=8, fill=tone["far"])
+
+    # Лёгкое размытие: сцена должна читаться как обстановка, а не как ещё одна
+    # картинка, с которой глаз спорит за внимание вместе с текстом.
+    img = img.filter(ImageFilter.GaussianBlur(radius=6))
+    return Image.blend(img, Image.new("RGB", (w, h), theme["bg"]), 0.35)
+
+
+# ─────────────────────────────── вторая партия предметов
+#
+# Слов на карточках 671, рисунков было 28. Остальные слова показывались голым
+# текстом, а младший ребёнок запоминает слово по картинке. Здесь предметы,
+# которые встречаются в выпусках для 7-9 лет: цвета, числа, школа, дом.
+
+CLR = {
+    "blue": ((36, 96, 214), (120, 168, 245)),
+    "green": ((36, 158, 92), (128, 214, 168)),
+    "black": ((42, 48, 62), (96, 104, 122)),
+    "white": ((236, 238, 246), (255, 255, 255)),
+    "brown": ((140, 92, 48), (196, 152, 104)),
+    "grey": ((140, 148, 166), (188, 194, 208)),
+    "pink": ((238, 116, 168), (252, 176, 208)),
+    "purple": ((124, 76, 216), (176, 140, 246)),
+    "orange_c": ((240, 148, 42), (250, 194, 118)),
+}
+
+
+def _swatch(name):
+    main, light = CLR[name]
+    return lambda d, x, y, s: _colour_blob(d, x, y, s, main, light)
+
+
+def _rainbow(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    """Слово colour: не один цвет, а несколько дуг подряд."""
+    bands = [(226, 62, 62), (240, 148, 42), (245, 206, 60), (36, 158, 92), (36, 96, 214)]
+    for index, colour in enumerate(bands):
+        r = s * (1.0 - index * 0.16)
+        d.pieslice([x - r, y - r, x + r, y + r], 200, 340, fill=colour)
+    d.pieslice([x - s * 0.2, y - s * 0.2, x + s * 0.2, y + s * 0.2], 200, 340, fill=(247, 248, 252))
+
+
+def _dots(count):
+    """Число: столько кружков, сколько названо. Цифра ребёнку ещё ничего не
+    говорит, а пять кружков говорят сразу."""
+    def draw(d, x, y, s, count=count):
+        s = s * 100
+        per_row = 5 if count > 4 else count
+        rows = math.ceil(count / per_row)
+        r = min(s * 0.18, s * 0.9 / per_row)
+        gap = r * 2.5
+        for index in range(count):
+            row, column = divmod(index, per_row)
+            cx = x + (column - (per_row - 1) / 2) * gap
+            cy = y + (row - (rows - 1) / 2) * gap
+            d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(255, 176, 46))
+            d.ellipse([cx - r * 0.42, cy - r * 0.52, cx - r * 0.02, cy - r * 0.12], fill=(255, 214, 140))
+    return draw
+
+
+def _chair(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    d.rounded_rectangle([x - s * 0.5, y - s * 0.9, x + s * 0.5, y - s * 0.1], radius=int(s * 0.14), fill=(196, 138, 74))
+    d.rounded_rectangle([x - s * 0.6, y - s * 0.2, x + s * 0.6, y + s * 0.05], radius=int(s * 0.1), fill=(224, 166, 96))
+    d.rectangle([x - s * 0.5, y + s * 0.05, x - s * 0.34, y + s * 0.9], fill=(196, 138, 74))
+    d.rectangle([x + s * 0.34, y + s * 0.05, x + s * 0.5, y + s * 0.9], fill=(196, 138, 74))
+
+
+def _bed(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    d.rounded_rectangle([x - s, y - s * 0.1, x + s, y + s * 0.5], radius=int(s * 0.12), fill=(120, 152, 226))
+    d.rounded_rectangle([x - s, y - s * 0.7, x - s * 0.72, y + s * 0.1], radius=int(s * 0.12), fill=(86, 116, 190))
+    d.rounded_rectangle([x - s * 0.86, y - s * 0.34, x - s * 0.34, y - s * 0.02], radius=int(s * 0.1), fill=(246, 248, 255))
+    d.rectangle([x - s * 0.94, y + s * 0.5, x - s * 0.78, y + s * 0.8], fill=(86, 116, 190))
+    d.rectangle([x + s * 0.78, y + s * 0.5, x + s * 0.94, y + s * 0.8], fill=(86, 116, 190))
+
+
+def _door(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    d.rounded_rectangle([x - s * 0.6, y - s, x + s * 0.6, y + s], radius=int(s * 0.12), fill=(176, 122, 68))
+    d.rounded_rectangle([x - s * 0.44, y - s * 0.84, x + s * 0.44, y + s * 0.84], radius=int(s * 0.1), fill=(206, 152, 92))
+    d.ellipse([x + s * 0.2, y - s * 0.06, x + s * 0.34, y + s * 0.08], fill=(250, 214, 120))
+
+
+def _window_obj(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    d.rounded_rectangle([x - s * 0.8, y - s * 0.7, x + s * 0.8, y + s * 0.7], radius=int(s * 0.12), fill=(150, 176, 226))
+    d.rounded_rectangle([x - s * 0.68, y - s * 0.58, x + s * 0.68, y + s * 0.58], radius=int(s * 0.08), fill=(206, 232, 250))
+    d.line([x, y - s * 0.58, x, y + s * 0.58], fill=(150, 176, 226), width=max(int(s * 0.09), 3))
+    d.line([x - s * 0.68, y, x + s * 0.68, y], fill=(150, 176, 226), width=max(int(s * 0.09), 3))
+
+
+def _cup(d, x, y, s):
+    s = s * 100
+    # Ручка рисуется до чашки, чтобы уходить за её край, а не пересекать её.
+    d.ellipse([x + s * 0.22, y - s * 0.28, x + s * 0.78, y + s * 0.28], fill=(150, 162, 190))
+    d.ellipse([x + s * 0.34, y - s * 0.16, x + s * 0.66, y + s * 0.16], fill=(247, 248, 252))
+    d.rounded_rectangle([x - s * 0.55, y - s * 0.45, x + s * 0.35, y + s * 0.6], radius=int(s * 0.16),
+                        fill=(246, 248, 255), outline=(150, 162, 190), width=max(int(s * 0.05), 2))
+    d.rounded_rectangle([x - s * 0.46, y - s * 0.36, x + s * 0.26, y - s * 0.06], radius=int(s * 0.1),
+                        fill=(150, 96, 54))
+    d.ellipse([x - s * 0.55, y + s * 0.52, x + s * 0.35, y + s * 0.72], fill=(214, 222, 240))
+
+
+def _plate(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    d.ellipse([x - s * 0.9, y - s * 0.5, x + s * 0.9, y + s * 0.5], fill=(176, 190, 220))
+    d.ellipse([x - s * 0.78, y - s * 0.42, x + s * 0.78, y + s * 0.42], fill=(226, 232, 245))
+    d.ellipse([x - s * 0.5, y - s * 0.26, x + s * 0.5, y + s * 0.26], fill=(250, 251, 255))
+
+
+def _spoon(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    d.ellipse([x - s * 0.26, y - s * 0.9, x + s * 0.26, y - s * 0.3], fill=(198, 206, 224))
+    d.rounded_rectangle([x - s * 0.08, y - s * 0.4, x + s * 0.08, y + s * 0.9], radius=int(s * 0.08), fill=(214, 220, 236))
+
+
+def _fork(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    for offset in (-0.22, 0.0, 0.22):
+        d.rounded_rectangle([x + s * offset - s * 0.05, y - s * 0.9, x + s * offset + s * 0.05, y - s * 0.4],
+                            radius=int(s * 0.05), fill=(198, 206, 224))
+    d.rounded_rectangle([x - s * 0.3, y - s * 0.46, x + s * 0.3, y - s * 0.3], radius=int(s * 0.08), fill=(198, 206, 224))
+    d.rounded_rectangle([x - s * 0.08, y - s * 0.34, x + s * 0.08, y + s * 0.9], radius=int(s * 0.08), fill=(214, 220, 236))
+
+
+def _knife(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    d.polygon([(x - s * 0.2, y - s * 0.9), (x + s * 0.14, y - s * 0.8), (x + s * 0.1, y + s * 0.1),
+               (x - s * 0.16, y + s * 0.1)], fill=(206, 214, 232))
+    d.rounded_rectangle([x - s * 0.16, y + s * 0.1, x + s * 0.1, y + s * 0.9], radius=int(s * 0.1), fill=(88, 96, 120))
+
+
+def _bread(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    d.rounded_rectangle([x - s * 0.8, y - s * 0.45, x + s * 0.8, y + s * 0.5], radius=int(s * 0.4), fill=(214, 158, 84))
+    d.rounded_rectangle([x - s * 0.66, y - s * 0.3, x + s * 0.66, y + s * 0.36], radius=int(s * 0.3), fill=(240, 200, 138))
+
+
+def _pencil(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    d.polygon([(x, y - s * 0.95), (x + s * 0.22, y - s * 0.6), (x - s * 0.22, y - s * 0.6)], fill=(60, 66, 84))
+    d.rectangle([x - s * 0.22, y - s * 0.6, x + s * 0.22, y + s * 0.7], fill=(250, 196, 60))
+    d.rectangle([x - s * 0.22, y + s * 0.7, x + s * 0.22, y + s * 0.95], fill=(236, 128, 140))
+
+
+def _ruler(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    d.rounded_rectangle([x - s * 0.24, y - s * 0.95, x + s * 0.24, y + s * 0.95], radius=int(s * 0.08), fill=(250, 214, 118))
+    for index in range(6):
+        yy = y - s * 0.8 + index * s * 0.32
+        d.line([x - s * 0.24, yy, x - s * 0.02, yy], fill=(160, 116, 40), width=max(int(s * 0.04), 2))
+
+
+def _rubber(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    d.rounded_rectangle([x - s * 0.6, y - s * 0.3, x + s * 0.6, y + s * 0.3], radius=int(s * 0.12), fill=(238, 148, 176))
+    d.rounded_rectangle([x - s * 0.6, y - s * 0.3, x - s * 0.1, y + s * 0.3], radius=int(s * 0.12), fill=(250, 250, 252))
+
+
+def _scissors(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    d.line([x - s * 0.4, y - s * 0.8, x + s * 0.3, y + s * 0.3], fill=(170, 180, 200), width=max(int(s * 0.14), 5))
+    d.line([x + s * 0.4, y - s * 0.8, x - s * 0.3, y + s * 0.3], fill=(150, 160, 184), width=max(int(s * 0.14), 5))
+    d.ellipse([x - s * 0.55, y + s * 0.3, x - s * 0.05, y + s * 0.8], outline=(226, 96, 96), width=max(int(s * 0.1), 4))
+    d.ellipse([x + s * 0.05, y + s * 0.3, x + s * 0.55, y + s * 0.8], outline=(226, 96, 96), width=max(int(s * 0.1), 4))
+
+
+def _bag_obj(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    d.rounded_rectangle([x - s * 0.7, y - s * 0.35, x + s * 0.7, y + s * 0.8], radius=int(s * 0.18), fill=(216, 72, 92))
+    d.rounded_rectangle([x - s * 0.7, y + s * 0.05, x + s * 0.7, y + s * 0.3], radius=int(s * 0.08), fill=(178, 48, 68))
+    d.arc([x - s * 0.4, y - s * 0.85, x + s * 0.4, y - s * 0.05], 180, 360, fill=(178, 48, 68), width=max(int(s * 0.12), 4))
+
+
+def _board_obj(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    d.rounded_rectangle([x - s * 0.95, y - s * 0.7, x + s * 0.95, y + s * 0.6], radius=int(s * 0.1), fill=(72, 108, 96))
+    d.rounded_rectangle([x - s * 0.85, y - s * 0.6, x + s * 0.85, y + s * 0.5], radius=int(s * 0.08), fill=(86, 126, 112))
+    d.rounded_rectangle([x - s * 0.4, y + s * 0.6, x + s * 0.4, y + s * 0.72], radius=int(s * 0.06), fill=(196, 152, 96))
+
+
+def _phone(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    d.rounded_rectangle([x - s * 0.42, y - s * 0.9, x + s * 0.42, y + s * 0.9], radius=int(s * 0.16), fill=(52, 60, 82))
+    d.rounded_rectangle([x - s * 0.34, y - s * 0.76, x + s * 0.34, y + s * 0.72], radius=int(s * 0.1), fill=(150, 200, 244))
+    d.rounded_rectangle([x - s * 0.12, y - s * 0.86, x + s * 0.12, y - s * 0.78], radius=int(s * 0.04), fill=(88, 96, 120))
+
+
+def _laptop(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    d.rounded_rectangle([x - s * 0.7, y - s * 0.75, x + s * 0.7, y + s * 0.25], radius=int(s * 0.1), fill=(72, 82, 108))
+    d.rounded_rectangle([x - s * 0.6, y - s * 0.65, x + s * 0.6, y + s * 0.15], radius=int(s * 0.06), fill=(150, 200, 244))
+    d.rounded_rectangle([x - s * 0.95, y + s * 0.25, x + s * 0.95, y + s * 0.45], radius=int(s * 0.08), fill=(174, 184, 208))
+
+
+def _clock(d, x, y, s):
+    s = s * 100  # рисунок писался от единицы, приводим к общей мере
+    d.ellipse([x - s * 0.9, y - s * 0.9, x + s * 0.9, y + s * 0.9], fill=(246, 248, 255))
+    d.ellipse([x - s * 0.78, y - s * 0.78, x + s * 0.78, y + s * 0.78], fill=(226, 232, 245))
+    d.line([x, y, x, y - s * 0.5], fill=(52, 60, 82), width=max(int(s * 0.1), 4))
+    d.line([x, y, x + s * 0.36, y + s * 0.12], fill=(52, 60, 82), width=max(int(s * 0.1), 4))
+    d.ellipse([x - s * 0.08, y - s * 0.08, x + s * 0.08, y + s * 0.08], fill=(226, 96, 96))
+
+
+OBJECTS.update({
+    "colour": _rainbow, "color": _rainbow,
+    "blue": _swatch("blue"), "green": _swatch("green"), "black": _swatch("black"),
+    "white": _swatch("white"), "brown": _swatch("brown"), "grey": _swatch("grey"),
+    "gray": _swatch("grey"), "pink": _swatch("pink"), "purple": _swatch("purple"),
+    "one": _dots(1), "two": _dots(2), "three": _dots(3), "four": _dots(4), "five": _dots(5),
+    "six": _dots(6), "seven": _dots(7), "eight": _dots(8), "nine": _dots(9), "ten": _dots(10),
+    "eleven": _dots(11), "twelve": _dots(12), "thirteen": _dots(13), "fourteen": _dots(14),
+    "fifteen": _dots(15), "sixteen": _dots(16), "seventeen": _dots(17), "eighteen": _dots(18),
+    "nineteen": _dots(19), "twenty": _dots(20),
+    "chair": _chair, "bed": _bed, "door": _door, "window": _window_obj,
+    "cup": _cup, "plate": _plate, "spoon": _spoon, "fork": _fork, "knife": _knife, "bread": _bread,
+    "pencil": _pencil, "ruler": _ruler, "rubber": _rubber, "scissors": _scissors,
+    "bag": _bag_obj, "schoolbag": _bag_obj, "backpack": _bag_obj, "board": _board_obj,
+    "phone": _phone, "laptop": _laptop, "computer": _laptop, "watch": _clock, "clock": _clock,
+    "time": _clock, "notebook": _book, "sofa": _bed,
+})
+
+
+# ─────────────────────────────── люди, животные, еда, дорога
+#
+# Люди и животные рисуются одной заготовкой с разными приметами: причёска,
+# уши, хвост, цвет. Пятнадцать отдельных рисунков разъехались бы по стилю, а
+# одна заготовка держит их семьёй.
+
+SKIN = (247, 206, 172)
+
+
+def _figure(hair, cloth, small=False, grey_hair=False, beard=False):
+    """Человек: голова, причёска, плечи. Разница между мамой и папой в
+    причёске и цвете одежды, а не в отдельном рисунке."""
+    def draw(d, x, y, s):
+        s = s * 100
+        k = 0.72 if small else 1.0
+        head = s * 0.34 * k
+        top = y - s * 0.5 * k
+        # плечи
+        d.rounded_rectangle([x - s * 0.52 * k, top + head * 1.5, x + s * 0.52 * k, y + s * 0.9],
+                            radius=int(s * 0.26 * k), fill=cloth)
+        d.ellipse([x - head, top - head * 0.2, x + head, top + head * 1.8], fill=SKIN)
+        # hair это форма причёски, а не цвет: цвет один на всех, седина отдельно.
+        colour = (176, 182, 196) if grey_hair else (74, 56, 44)
+        if hair == "long":
+            d.ellipse([x - head * 1.15, top - head * 0.4, x + head * 1.15, top + head * 2.1], fill=colour)
+            d.ellipse([x - head, top - head * 0.05, x + head, top + head * 1.85], fill=SKIN)
+        else:
+            d.chord([x - head, top - head * 0.35, x + head, top + head * 1.2], 180, 360, fill=colour)
+        if beard:
+            d.chord([x - head * 0.8, top + head * 0.5, x + head * 0.8, top + head * 1.9], 0, 180, fill=colour)
+        eye = max(int(head * 0.12), 2)
+        d.ellipse([x - head * 0.42 - eye, top + head * 0.72 - eye, x - head * 0.42 + eye, top + head * 0.72 + eye],
+                  fill=(48, 54, 74))
+        d.ellipse([x + head * 0.42 - eye, top + head * 0.72 - eye, x + head * 0.42 + eye, top + head * 0.72 + eye],
+                  fill=(48, 54, 74))
+        d.arc([x - head * 0.4, top + head * 0.9, x + head * 0.4, top + head * 1.4], 20, 160, fill=(196, 118, 106),
+              width=max(int(head * 0.12), 2))
+    return draw
+
+
+def _animal(body, ear, tail="short", muzzle=None, long_neck=False, mark=None):
+    """Животное: туловище, голова, уши и хвост. Уши и хвост и делают из одной
+    заготовки то кошку, то зайца, то медведя."""
+    def draw(d, x, y, s):
+        s = s * 100
+        light = tuple(min(part + 40, 255) for part in body)
+        edge = tuple(max(part - 60, 0) for part in body)
+        d.ellipse([x - s * 0.62, y - s * 0.18, x + s * 0.52, y + s * 0.62], fill=body, outline=edge,
+                  width=max(int(s * 0.03), 2))
+        if mark == "spots":
+            d.ellipse([x - s * 0.44, y + s * 0.02, x - s * 0.16, y + s * 0.3], fill=edge)
+            d.ellipse([x - s * 0.05, y + s * 0.22, x + s * 0.19, y + s * 0.46], fill=edge)
+        elif mark == "wool":
+            for angle in range(0, 360, 45):
+                a = math.radians(angle)
+                cx, cy = x - s * 0.05 + s * 0.3 * math.cos(a), y + s * 0.22 + s * 0.26 * math.sin(a)
+                d.ellipse([cx - s * 0.16, cy - s * 0.16, cx + s * 0.16, cy + s * 0.16], fill=light,
+                          outline=edge, width=max(int(s * 0.02), 1))
+        head_y = y - s * (0.75 if long_neck else 0.45)
+        if long_neck:
+            d.rounded_rectangle([x + s * 0.16, head_y, x + s * 0.44, y + s * 0.1], radius=int(s * 0.14), fill=body)
+        head_x = x + s * (0.3 if long_neck else 0.36)
+        head = s * 0.3
+        if ear == "round":
+            for side in (-1, 1):
+                d.ellipse([head_x + side * head * 0.7 - head * 0.34, head_y - head * 0.95,
+                           head_x + side * head * 0.7 + head * 0.34, head_y - head * 0.27], fill=body)
+        elif ear == "point":
+            for side in (-1, 1):
+                d.polygon([(head_x + side * head * 0.55, head_y - head * 0.5),
+                           (head_x + side * head * 0.95, head_y - head * 1.25),
+                           (head_x + side * head * 0.15, head_y - head * 0.9)], fill=body)
+        elif ear == "long":
+            for side in (-1, 1):
+                d.ellipse([head_x + side * head * 0.4 - head * 0.2, head_y - head * 1.9,
+                           head_x + side * head * 0.4 + head * 0.2, head_y - head * 0.4], fill=body)
+        if mark == "mane":
+            d.ellipse([head_x - head * 1.5, head_y - head * 1.5, head_x + head * 1.5, head_y + head * 1.5],
+                      fill=(198, 128, 46))
+        d.ellipse([head_x - head, head_y - head, head_x + head, head_y + head], fill=body, outline=edge,
+                  width=max(int(s * 0.03), 2))
+        if mark == "horns":
+            for side in (-1, 1):
+                d.ellipse([head_x + side * head * 0.9 - head * 0.16, head_y - head * 1.15,
+                           head_x + side * head * 0.9 + head * 0.16, head_y - head * 0.75], fill=(214, 200, 176))
+        if mark == "trunk":
+            # Хобот и большое ухо: без них слон это просто серое животное.
+            d.ellipse([head_x - head * 1.5, head_y - head * 0.9, head_x - head * 0.2, head_y + head * 0.9],
+                      fill=light, outline=edge, width=max(int(s * 0.03), 2))
+            d.rounded_rectangle([head_x + head * 0.55, head_y + head * 0.2, head_x + head * 0.95, head_y + head * 1.6],
+                                radius=int(head * 0.2), fill=body, outline=edge, width=max(int(s * 0.03), 2))
+        if muzzle:
+            d.ellipse([head_x - head * 0.1, head_y + head * 0.1, head_x + head * 0.85, head_y + head * 0.75],
+                      fill=muzzle)
+        d.ellipse([head_x + head * 0.05, head_y - head * 0.3, head_x + head * 0.25, head_y - head * 0.05],
+                  fill=(40, 46, 64))
+        d.ellipse([head_x + head * 0.55, head_y - head * 0.3, head_x + head * 0.75, head_y - head * 0.05],
+                  fill=(40, 46, 64))
+        d.ellipse([head_x + head * 0.62, head_y + head * 0.18, head_x + head * 0.92, head_y + head * 0.44],
+                  fill=(60, 46, 52))
+        if tail == "short":
+            d.ellipse([x - s * 0.78, y + s * 0.05, x - s * 0.5, y + s * 0.33], fill=light)
+        elif tail == "long":
+            d.arc([x - s * 1.0, y - s * 0.5, x - s * 0.3, y + s * 0.4], 20, 250, fill=body,
+                  width=max(int(s * 0.12), 4))
+        for offset in (-0.38, 0.06, 0.3):
+            d.rounded_rectangle([x + s * offset, y + s * 0.45, x + s * (offset + 0.16), y + s * 0.85],
+                                radius=int(s * 0.07), fill=body)
+    return draw
+
+
+def _bird(d, x, y, s):
+    s = s * 100
+    d.ellipse([x - s * 0.5, y - s * 0.3, x + s * 0.45, y + s * 0.45], fill=(84, 158, 226))
+    d.ellipse([x + s * 0.2, y - s * 0.62, x + s * 0.72, y - s * 0.1], fill=(84, 158, 226))
+    d.polygon([(x + s * 0.66, y - s * 0.42), (x + s * 0.96, y - s * 0.3), (x + s * 0.66, y - s * 0.2)],
+              fill=(246, 176, 60))
+    d.ellipse([x + s * 0.5, y - s * 0.5, x + s * 0.6, y - s * 0.4], fill=(30, 38, 60))
+    d.ellipse([x - s * 0.3, y - s * 0.12, x + s * 0.24, y + s * 0.3], fill=(140, 198, 246))
+    d.polygon([(x - s * 0.5, y + s * 0.1), (x - s * 0.95, y + s * 0.3), (x - s * 0.46, y + s * 0.42)],
+              fill=(60, 128, 200))
+    for offset in (-0.1, 0.16):
+        d.line([x + s * offset, y + s * 0.42, x + s * offset, y + s * 0.72], fill=(246, 176, 60),
+               width=max(int(s * 0.06), 2))
+
+
+def _fish_obj(d, x, y, s):
+    s = s * 100
+    d.ellipse([x - s * 0.6, y - s * 0.4, x + s * 0.5, y + s * 0.4], fill=(64, 172, 214))
+    d.polygon([(x + s * 0.4, y), (x + s * 0.92, y - s * 0.4), (x + s * 0.92, y + s * 0.4)], fill=(44, 140, 186))
+    d.ellipse([x - s * 0.44, y - s * 0.16, x - s * 0.28, y], fill=(28, 36, 58))
+
+
+def _snake(d, x, y, s):
+    s = s * 100
+    d.arc([x - s * 0.8, y - s * 0.5, x + s * 0.4, y + s * 0.4], 160, 20, fill=(86, 176, 106),
+          width=max(int(s * 0.22), 6))
+    d.arc([x - s * 0.3, y - s * 0.1, x + s * 0.9, y + s * 0.8], 180, 340, fill=(86, 176, 106),
+          width=max(int(s * 0.22), 6))
+    d.ellipse([x - s * 0.95, y - s * 0.62, x - s * 0.55, y - s * 0.22], fill=(106, 196, 126))
+    d.ellipse([x - s * 0.86, y - s * 0.54, x - s * 0.76, y - s * 0.44], fill=(30, 40, 60))
+
+
+def _tree(d, x, y, s):
+    s = s * 100
+    d.rectangle([x - s * 0.12, y, x + s * 0.12, y + s * 0.8], fill=(146, 100, 58))
+    d.ellipse([x - s * 0.66, y - s * 0.9, x + s * 0.66, y + s * 0.16], fill=(64, 168, 104))
+    d.ellipse([x - s * 0.4, y - s * 1.1, x + s * 0.34, y - s * 0.34], fill=(92, 194, 128))
+
+
+def _cloud(d, x, y, s):
+    s = s * 100
+    d.ellipse([x - s * 0.7, y - s * 0.25, x - s * 0.1, y + s * 0.35], fill=(226, 234, 248))
+    d.ellipse([x - s * 0.3, y - s * 0.5, x + s * 0.35, y + s * 0.3], fill=(238, 244, 254))
+    d.ellipse([x + s * 0.05, y - s * 0.2, x + s * 0.7, y + s * 0.35], fill=(226, 234, 248))
+    d.rounded_rectangle([x - s * 0.7, y + s * 0.05, x + s * 0.7, y + s * 0.35], radius=int(s * 0.15),
+                        fill=(232, 240, 250))
+
+
+def _snow(d, x, y, s):
+    s = s * 100
+    for angle in range(0, 180, 30):
+        a = math.radians(angle)
+        d.line([x - s * 0.7 * math.cos(a), y - s * 0.7 * math.sin(a),
+                x + s * 0.7 * math.cos(a), y + s * 0.7 * math.sin(a)],
+               fill=(150, 196, 240), width=max(int(s * 0.09), 3))
+    d.ellipse([x - s * 0.16, y - s * 0.16, x + s * 0.16, y + s * 0.16], fill=(206, 230, 250))
+
+
+def _car(d, x, y, s):
+    s = s * 100
+    d.rounded_rectangle([x - s * 0.85, y - s * 0.1, x + s * 0.85, y + s * 0.42], radius=int(s * 0.18),
+                        fill=(226, 72, 84))
+    d.rounded_rectangle([x - s * 0.5, y - s * 0.55, x + s * 0.45, y - s * 0.02], radius=int(s * 0.16),
+                        fill=(240, 110, 118))
+    d.rounded_rectangle([x - s * 0.42, y - s * 0.46, x - s * 0.04, y - s * 0.1], radius=int(s * 0.08),
+                        fill=(206, 232, 250))
+    d.rounded_rectangle([x + s * 0.04, y - s * 0.46, x + s * 0.38, y - s * 0.1], radius=int(s * 0.08),
+                        fill=(206, 232, 250))
+    for side in (-0.48, 0.48):
+        d.ellipse([x + s * side - s * 0.2, y + s * 0.28, x + s * side + s * 0.2, y + s * 0.68], fill=(52, 58, 78))
+        d.ellipse([x + s * side - s * 0.08, y + s * 0.4, x + s * side + s * 0.08, y + s * 0.56], fill=(180, 188, 208))
+
+
+def _bus(d, x, y, s):
+    s = s * 100
+    d.rounded_rectangle([x - s * 0.9, y - s * 0.6, x + s * 0.9, y + s * 0.45], radius=int(s * 0.16),
+                        fill=(250, 186, 60))
+    for index in range(3):
+        left = x - s * 0.75 + index * s * 0.5
+        d.rounded_rectangle([left, y - s * 0.45, left + s * 0.38, y - s * 0.05], radius=int(s * 0.07),
+                            fill=(206, 232, 250))
+    for side in (-0.5, 0.5):
+        d.ellipse([x + s * side - s * 0.2, y + s * 0.3, x + s * side + s * 0.2, y + s * 0.7], fill=(52, 58, 78))
+
+
+def _plane(d, x, y, s):
+    s = s * 100
+    body = (226, 232, 245)
+    wing = (110, 158, 220)
+    d.polygon([(x - s * 0.1, y - s * 0.08), (x + s * 0.5, y - s * 0.62), (x + s * 0.66, y - s * 0.5),
+               (x + s * 0.34, y + s * 0.02)], fill=wing)
+    d.polygon([(x - s * 0.1, y + s * 0.08), (x + s * 0.5, y + s * 0.62), (x + s * 0.66, y + s * 0.5),
+               (x + s * 0.34, y - s * 0.02)], fill=(88, 134, 198))
+    d.rounded_rectangle([x - s * 0.9, y - s * 0.16, x + s * 0.7, y + s * 0.16], radius=int(s * 0.16), fill=body)
+    d.polygon([(x + s * 0.6, y - s * 0.16), (x + s * 0.98, y), (x + s * 0.6, y + s * 0.16)], fill=(196, 206, 228))
+    d.polygon([(x - s * 0.86, y - s * 0.14), (x - s * 0.62, y - s * 0.56), (x - s * 0.46, y - s * 0.14)], fill=wing)
+    d.ellipse([x + s * 0.24, y - s * 0.09, x + s * 0.42, y + s * 0.09], fill=(150, 200, 244))
+    d.ellipse([x - s * 0.02, y - s * 0.09, x + s * 0.16, y + s * 0.09], fill=(150, 200, 244))
+
+
+def _bike(d, x, y, s):
+    s = s * 100
+    for side in (-0.5, 0.5):
+        d.ellipse([x + s * side - s * 0.36, y - s * 0.36, x + s * side + s * 0.36, y + s * 0.36],
+                  outline=(52, 58, 78), width=max(int(s * 0.09), 3))
+    d.line([x - s * 0.5, y, x - s * 0.1, y - s * 0.42], fill=(226, 72, 84), width=max(int(s * 0.08), 3))
+    d.line([x - s * 0.1, y - s * 0.42, x + s * 0.5, y], fill=(226, 72, 84), width=max(int(s * 0.08), 3))
+    d.line([x - s * 0.5, y, x + s * 0.2, y], fill=(226, 72, 84), width=max(int(s * 0.08), 3))
+    d.rounded_rectangle([x - s * 0.26, y - s * 0.56, x + s * 0.04, y - s * 0.44], radius=int(s * 0.05),
+                        fill=(52, 58, 78))
+
+
+OBJECTS.update({
+    "man": _figure("short", (72, 108, 190), beard=True),
+    "woman": _figure("long", (216, 92, 140)),
+    "boy": _figure("short", (86, 168, 226), small=True),
+    "child": _figure("short", (246, 176, 60), small=True),
+    "children": _figure("long", (140, 196, 120), small=True),
+    "kid": _figure("short", (246, 176, 60), small=True),
+    "baby": _figure("short", (250, 206, 226), small=True),
+    "person": _figure("short", (110, 122, 170)),
+    "people": _figure("short", (110, 122, 170)),
+    "friend": _figure("short", (86, 168, 226)),
+    "mother": _figure("long", (216, 92, 140)),
+    "mom": _figure("long", (216, 92, 140)),
+    "father": _figure("short", (72, 108, 190), beard=True),
+    "dad": _figure("short", (72, 108, 190), beard=True),
+    "sister": _figure("long", (240, 140, 176), small=True),
+    "brother": _figure("short", (96, 158, 214), small=True),
+    "son": _figure("short", (96, 158, 214), small=True),
+    "daughter": _figure("long", (240, 140, 176), small=True),
+    "grandmother": _figure("long", (168, 140, 196), grey_hair=True),
+    "grandfather": _figure("short", (120, 130, 160), grey_hair=True, beard=True),
+    "teacher": _figure("long", (86, 132, 200)),
+    "student": _figure("short", (246, 176, 60), small=True),
+    "doctor": _figure("short", (238, 242, 250)),
+    "nurse": _figure("long", (238, 242, 250)),
+    "husband": _figure("short", (72, 108, 190), beard=True),
+    "wife": _figure("long", (216, 92, 140)),
+
+    "horse": _animal((166, 116, 66), "point", tail="long", long_neck=True),
+    "cow": _animal((238, 240, 248), "round", muzzle=(246, 186, 196), mark="spots"),
+    "sheep": _animal((240, 242, 250), "long", muzzle=(226, 214, 214), mark="wool"),
+    "goat": _animal((214, 214, 222), "point", muzzle=(240, 236, 236), mark="horns"),
+    "chicken": _bird, "bird": _bird,
+    "mouse": _animal((176, 182, 200), "round", tail="long"),
+    "rabbit": _animal((242, 244, 250), "long", muzzle=(250, 214, 224)),
+    "bear": _animal((140, 96, 62), "round", muzzle=(206, 168, 122)),
+    "wolf": _animal((132, 140, 160), "point", tail="long", muzzle=(196, 202, 216)),
+    "fox": _animal((236, 138, 62), "point", tail="long", muzzle=(250, 246, 242)),
+    "lion": _animal((234, 176, 76), "round", tail="long", muzzle=(250, 224, 168), mark="mane"),
+    "elephant": _animal((150, 162, 186), "round", mark="trunk"),
+    "monkey": _animal((150, 108, 70), "round", tail="long", muzzle=(226, 186, 146)),
+    "snake": _snake, "frog": _animal((104, 186, 108), "round", muzzle=(160, 214, 150)),
+    "animal": _animal((166, 116, 66), "round", muzzle=(214, 178, 140)),
+    "fish": _fish_obj,
+
+    "tree": _tree, "cloud": _cloud, "snow": _snow, "winter": _snow, "sky": _cloud,
+    "car": _car, "bus": _bus, "plane": _plane, "bike": _bike, "train": _bus,
+})
+
+
+# ─────────────────────────────── действия, тело, еда, места
+#
+# Действие показать труднее предмета: нужна поза. Заготовка одна, разница в
+# положении рук и ног, потому что «бежит» и «прыгает» ребёнок узнаёт по силуэту.
+
+def _pose(arms, legs, extra=None, cloth=(86, 132, 226)):
+    def draw(d, x, y, s):
+        s = s * 100
+        head = s * 0.2
+        top = y - s * 0.62
+        d.ellipse([x - head, top - head, x + head, top + head], fill=SKIN)
+        d.chord([x - head, top - head * 1.35, x + head, top + head * 0.7], 180, 360, fill=(74, 56, 44))
+        d.rounded_rectangle([x - s * 0.2, top + head, x + s * 0.2, y + s * 0.28], radius=int(s * 0.12), fill=cloth)
+        width = max(int(s * 0.11), 4)
+        for (dx, dy) in arms:
+            d.line([x, top + head * 1.6, x + s * dx, top + head * 1.6 + s * dy], fill=SKIN, width=width)
+        for (dx, dy) in legs:
+            d.line([x, y + s * 0.26, x + s * dx, y + s * 0.26 + s * dy], fill=(60, 76, 128), width=width)
+        if extra:
+            extra(d, x, y, s)
+    return draw
+
+
+def _book_in_hands(d, x, y, s):
+    d.rounded_rectangle([x - s * 0.34, y - s * 0.28, x + s * 0.34, y + s * 0.06], radius=int(s * 0.05),
+                        fill=(226, 92, 92))
+    d.line([x, y - s * 0.28, x, y + s * 0.06], fill=(250, 250, 252), width=max(int(s * 0.04), 2))
+
+
+def _note(d, x, y, s):
+    d.ellipse([x + s * 0.3, y - s * 0.62, x + s * 0.46, y - s * 0.46], fill=(96, 132, 214))
+    d.line([x + s * 0.46, y - s * 0.54, x + s * 0.46, y - s * 0.9], fill=(96, 132, 214), width=max(int(s * 0.05), 2))
+
+
+def _z(d, x, y, s):
+    for index, step in enumerate((0.0, 0.16, 0.3)):
+        size = s * (0.14 - index * 0.03)
+        cx, cy = x + s * (0.34 + step), y - s * (0.75 + step)
+        d.line([cx - size, cy - size, cx + size, cy - size], fill=(140, 158, 200), width=max(int(s * 0.04), 2))
+        d.line([cx + size, cy - size, cx - size, cy + size], fill=(140, 158, 200), width=max(int(s * 0.04), 2))
+        d.line([cx - size, cy + size, cx + size, cy + size], fill=(140, 158, 200), width=max(int(s * 0.04), 2))
+
+
+def _waves(d, x, y, s):
+    for index in range(3):
+        yy = y + s * (0.3 + index * 0.16)
+        d.arc([x - s * 0.9, yy - s * 0.12, x - s * 0.1, yy + s * 0.12], 180, 360, fill=(96, 176, 226),
+              width=max(int(s * 0.06), 2))
+        d.arc([x - s * 0.1, yy - s * 0.12, x + s * 0.7, yy + s * 0.12], 0, 180, fill=(96, 176, 226),
+              width=max(int(s * 0.06), 2))
+
+
+def _part(shape):
+    """Часть тела: крупно и отдельно, как в букваре."""
+    def draw(d, x, y, s):
+        s = s * 100
+        if shape == "head":
+            d.ellipse([x - s * 0.6, y - s * 0.7, x + s * 0.6, y + s * 0.7], fill=SKIN)
+            d.chord([x - s * 0.6, y - s * 0.95, x + s * 0.6, y + s * 0.15], 180, 360, fill=(74, 56, 44))
+            d.ellipse([x - s * 0.3, y - s * 0.1, x - s * 0.16, y + s * 0.04], fill=(48, 54, 74))
+            d.ellipse([x + s * 0.16, y - s * 0.1, x + s * 0.3, y + s * 0.04], fill=(48, 54, 74))
+            d.arc([x - s * 0.28, y + s * 0.14, x + s * 0.28, y + s * 0.5], 20, 160, fill=(196, 118, 106),
+                  width=max(int(s * 0.07), 3))
+        elif shape == "eye":
+            d.ellipse([x - s * 0.8, y - s * 0.42, x + s * 0.8, y + s * 0.42], fill=(250, 250, 252),
+                      outline=(150, 162, 190), width=max(int(s * 0.05), 2))
+            d.ellipse([x - s * 0.28, y - s * 0.32, x + s * 0.28, y + s * 0.32], fill=(74, 138, 200))
+            d.ellipse([x - s * 0.12, y - s * 0.16, x + s * 0.12, y + s * 0.16], fill=(30, 36, 56))
+        elif shape == "ear":
+            d.ellipse([x - s * 0.45, y - s * 0.7, x + s * 0.45, y + s * 0.7], fill=SKIN)
+            d.arc([x - s * 0.2, y - s * 0.4, x + s * 0.3, y + s * 0.35], 40, 300, fill=(214, 160, 128),
+                  width=max(int(s * 0.09), 3))
+        elif shape == "mouth":
+            d.ellipse([x - s * 0.7, y - s * 0.4, x + s * 0.7, y + s * 0.4], fill=(206, 88, 96))
+            d.chord([x - s * 0.7, y - s * 0.4, x + s * 0.7, y + s * 0.4], 0, 180, fill=(178, 60, 74))
+            d.rounded_rectangle([x - s * 0.5, y - s * 0.12, x + s * 0.5, y + s * 0.06], radius=int(s * 0.06),
+                                fill=(250, 250, 252))
+        elif shape == "tooth":
+            d.rounded_rectangle([x - s * 0.42, y - s * 0.6, x + s * 0.42, y + s * 0.2], radius=int(s * 0.18),
+                                fill=(250, 250, 252), outline=(190, 200, 220), width=max(int(s * 0.04), 2))
+            # Корни того же светлого цвета, что и коронка, но с обводкой: без
+            # неё зуб на белом фоне пропадал целиком.
+            for side in (-1, 1):
+                d.polygon([(x + side * s * 0.42, y + s * 0.1), (x + side * s * 0.1, y + s * 0.72),
+                           (x + side * s * 0.02, y + s * 0.1)], fill=(250, 250, 252),
+                          outline=(190, 200, 220))
+        elif shape == "heart":
+            d.ellipse([x - s * 0.6, y - s * 0.6, x + s * 0.05, y + s * 0.1], fill=(226, 72, 92))
+            d.ellipse([x - s * 0.05, y - s * 0.6, x + s * 0.6, y + s * 0.1], fill=(226, 72, 92))
+            d.polygon([(x - s * 0.58, y - s * 0.16), (x + s * 0.58, y - s * 0.16), (x, y + s * 0.75)],
+                      fill=(226, 72, 92))
+        elif shape == "foot":
+            d.ellipse([x - s * 0.5, y - s * 0.5, x + s * 0.3, y + s * 0.6], fill=SKIN)
+            for index in range(4):
+                cx = x + s * (0.16 + index * 0.14)
+                d.ellipse([cx - s * 0.1, y - s * 0.45 + index * s * 0.16, cx + s * 0.1,
+                           y - s * 0.25 + index * s * 0.16], fill=SKIN)
+    return draw
+
+
+def _place(kind):
+    """Место: несколько домов, а не один. Город от села отличается их числом."""
+    def draw(d, x, y, s):
+        s = s * 100
+        wall = (150, 176, 226)
+        roof = (86, 116, 190)
+        if kind == "city":
+            heights = (1.1, 1.5, 0.9, 1.3)
+        elif kind == "town":
+            heights = (0.8, 1.0, 0.7)
+        else:
+            heights = (0.9,)
+        step = s * 1.5 / max(len(heights), 1)
+        left = x - step * (len(heights) - 1) / 2
+        for index, height in enumerate(heights):
+            cx = left + index * step
+            d.rounded_rectangle([cx - step * 0.34, y + s * 0.6 - s * height, cx + step * 0.34, y + s * 0.6],
+                                radius=int(s * 0.05), fill=wall)
+            if kind == "village":
+                d.polygon([(cx - step * 0.46, y + s * 0.6 - s * height),
+                           (cx, y + s * 0.6 - s * height - s * 0.4),
+                           (cx + step * 0.46, y + s * 0.6 - s * height)], fill=roof)
+            for row in range(int(height * 2)):
+                yy = y + s * 0.45 - row * s * 0.32
+                if yy > y + s * 0.6 - s * height + s * 0.1:
+                    d.rectangle([cx - step * 0.16, yy - s * 0.16, cx + step * 0.16, yy], fill=(250, 232, 178))
+        if kind == "village":
+            d.ellipse([x + s * 0.6, y + s * 0.2, x + s * 1.1, y + s * 0.7], fill=(92, 178, 118))
+        d.rounded_rectangle([x - s * 1.0, y + s * 0.6, x + s * 1.0, y + s * 0.74], radius=int(s * 0.06),
+                            fill=(198, 206, 224))
+    return draw
+
+
+def _shirt(d, x, y, s):
+    s = s * 100
+    d.polygon([(x - s * 0.7, y - s * 0.3), (x - s * 0.35, y - s * 0.62), (x + s * 0.35, y - s * 0.62),
+               (x + s * 0.7, y - s * 0.3), (x + s * 0.45, y - s * 0.05), (x + s * 0.45, y + s * 0.7),
+               (x - s * 0.45, y + s * 0.7), (x - s * 0.45, y - s * 0.05)], fill=(86, 150, 226))
+    d.polygon([(x - s * 0.16, y - s * 0.62), (x, y - s * 0.3), (x + s * 0.16, y - s * 0.62)], fill=(226, 236, 250))
+
+
+def _shoe(d, x, y, s):
+    s = s * 100
+    d.rounded_rectangle([x - s * 0.7, y + s * 0.1, x + s * 0.7, y + s * 0.45], radius=int(s * 0.14),
+                        fill=(52, 60, 82))
+    d.polygon([(x - s * 0.6, y + s * 0.12), (x - s * 0.3, y - s * 0.5), (x + s * 0.2, y - s * 0.5),
+               (x + s * 0.5, y + s * 0.12)], fill=(226, 72, 84))
+    d.line([x - s * 0.3, y - s * 0.3, x + s * 0.24, y - s * 0.3], fill=(250, 250, 252), width=max(int(s * 0.06), 2))
+
+
+def _money_obj(d, x, y, s):
+    s = s * 100
+    for index in range(2):
+        off = index * s * 0.12
+        d.rounded_rectangle([x - s * 0.8 + off, y - s * 0.4 + off, x + s * 0.6 + off, y + s * 0.3 + off],
+                            radius=int(s * 0.08), fill=(112, 190, 140), outline=(72, 150, 104),
+                            width=max(int(s * 0.03), 2))
+    d.ellipse([x - s * 0.24, y - s * 0.16, x + s * 0.16, y + s * 0.24], fill=(240, 250, 244))
+
+
+def _ticket(d, x, y, s):
+    s = s * 100
+    d.rounded_rectangle([x - s * 0.85, y - s * 0.4, x + s * 0.85, y + s * 0.4], radius=int(s * 0.1),
+                        fill=(250, 206, 118))
+    d.ellipse([x - s * 0.1, y - s * 0.5, x + s * 0.1, y - s * 0.3], fill=(247, 248, 252))
+    d.ellipse([x - s * 0.1, y + s * 0.3, x + s * 0.1, y + s * 0.5], fill=(247, 248, 252))
+    for index in range(3):
+        d.line([x - s * 0.7, y - s * 0.16 + index * s * 0.16, x - s * 0.2, y - s * 0.16 + index * s * 0.16],
+               fill=(190, 140, 60), width=max(int(s * 0.04), 2))
+
+
+def _tv(d, x, y, s):
+    s = s * 100
+    d.rounded_rectangle([x - s * 0.9, y - s * 0.6, x + s * 0.9, y + s * 0.45], radius=int(s * 0.1),
+                        fill=(52, 60, 82))
+    d.rounded_rectangle([x - s * 0.8, y - s * 0.5, x + s * 0.8, y + s * 0.35], radius=int(s * 0.06),
+                        fill=(150, 200, 244))
+    d.rounded_rectangle([x - s * 0.2, y + s * 0.45, x + s * 0.2, y + s * 0.6], radius=int(s * 0.05),
+                        fill=(88, 96, 120))
+
+
+def _paper(d, x, y, s):
+    s = s * 100
+    d.rounded_rectangle([x - s * 0.55, y - s * 0.75, x + s * 0.55, y + s * 0.75], radius=int(s * 0.06),
+                        fill=(250, 250, 252), outline=(190, 200, 220), width=max(int(s * 0.04), 2))
+    for index in range(4):
+        yy = y - s * 0.45 + index * s * 0.3
+        d.line([x - s * 0.36, yy, x + s * 0.36, yy], fill=(196, 206, 226), width=max(int(s * 0.05), 2))
+
+
+def _rain(d, x, y, s):
+    s = s * 100
+    d.ellipse([x - s * 0.7, y - s * 0.55, x - s * 0.1, y + s * 0.05], fill=(196, 210, 232))
+    d.ellipse([x - s * 0.3, y - s * 0.8, x + s * 0.35, y], fill=(214, 226, 244))
+    d.ellipse([x + s * 0.05, y - s * 0.5, x + s * 0.7, y + s * 0.05], fill=(196, 210, 232))
+    for index in range(4):
+        cx = x - s * 0.45 + index * s * 0.3
+        d.line([cx, y + s * 0.2, cx - s * 0.1, y + s * 0.6], fill=(96, 160, 226), width=max(int(s * 0.06), 2))
+
+
+def _star(d, x, y, s):
+    s = s * 100
+    points = []
+    for index in range(10):
+        angle = math.radians(-90 + index * 36)
+        radius = s * (0.8 if index % 2 == 0 else 0.34)
+        points.append((x + radius * math.cos(angle), y + radius * math.sin(angle)))
+    d.polygon(points, fill=(250, 206, 60))
+
+
+OBJECTS.update({
+    "run": _pose([(-0.4, 0.1), (0.4, -0.1)], [(-0.35, 0.3), (0.35, 0.24)]),
+    "walk": _pose([(-0.25, 0.25), (0.25, 0.2)], [(-0.2, 0.4), (0.22, 0.38)]),
+    "jump": _pose([(-0.35, -0.35), (0.35, -0.35)], [(-0.3, 0.28), (0.3, 0.28)]),
+    "swim": _pose([(-0.45, -0.1), (0.45, 0.05)], [(-0.3, 0.2), (0.35, 0.16)], extra=_waves),
+    "dance": _pose([(-0.4, -0.3), (0.35, 0.25)], [(-0.3, 0.36), (0.34, 0.2)], cloth=(226, 92, 148)),
+    "sing": _pose([(-0.2, 0.3), (0.3, -0.3)], [(-0.16, 0.42), (0.16, 0.42)], extra=_note),
+    "play": _pose([(-0.35, -0.2), (0.35, -0.2)], [(-0.24, 0.4), (0.24, 0.4)], cloth=(246, 176, 60)),
+    "read": _pose([(-0.28, 0.2), (0.28, 0.2)], [(-0.2, 0.42), (0.2, 0.42)], extra=_book_in_hands),
+    "write": _pose([(-0.2, 0.3), (0.34, 0.16)], [(-0.2, 0.42), (0.2, 0.42)]),
+    "draw": _pose([(-0.2, 0.3), (0.36, 0.1)], [(-0.2, 0.42), (0.2, 0.42)], cloth=(140, 196, 120)),
+    "sleep": _pose([(-0.3, 0.16), (0.3, 0.16)], [(-0.2, 0.4), (0.2, 0.4)], extra=_z, cloth=(140, 158, 216)),
+    "eat": _pose([(-0.24, 0.1), (0.2, -0.2)], [(-0.2, 0.42), (0.2, 0.42)]),
+    "drink": _pose([(-0.24, 0.2), (0.16, -0.3)], [(-0.2, 0.42), (0.2, 0.42)]),
+    "help": _pose([(-0.42, -0.1), (0.42, -0.1)], [(-0.24, 0.4), (0.24, 0.4)], cloth=(96, 186, 150)),
+    "wash": _pose([(-0.26, 0.24), (0.26, 0.24)], [(-0.2, 0.42), (0.2, 0.42)], cloth=(120, 190, 226)),
+    "work": _pose([(-0.3, 0.2), (0.3, 0.2)], [(-0.2, 0.42), (0.2, 0.42)], cloth=(110, 122, 170)),
+
+    "head": _part("head"), "face": _part("head"), "eye": _part("eye"), "ear": _part("ear"),
+    "mouth": _part("mouth"), "tooth": _part("tooth"), "heart": _part("heart"), "foot": _part("foot"),
+
+    "city": _place("city"), "town": _place("town"), "village": _place("village"),
+    "home": _house, "room": _window_obj, "building": _place("town"),
+
+    "shirt": _shirt, "clothes": _shirt, "jacket": _shirt, "shoes": _shoe, "shoe": _shoe,
+    "money": _money_obj, "card": _ticket, "ticket": _ticket, "tv": _tv, "paper": _paper,
+    "rain": _rain, "rainy": _rain, "star": _star, "sunny": _sun, "weather": _cloud,
+})

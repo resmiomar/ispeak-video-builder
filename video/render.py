@@ -14,7 +14,7 @@ TypeScript, у которого есть доступ к ТЗ. Здесь тол
 import asyncio, hashlib, json, math, os, subprocess, sys, wave
 from PIL import Image, ImageDraw, ImageFont
 import edge_tts
-from art import draw_object, make_background, ease_out_back
+from art import draw_object, make_background, ease_out_back, scene_background
 from mascot import paste_mascot
 
 W, H, FPS = 1920, 1080, 25
@@ -169,11 +169,12 @@ def background(age, phase, photo=None):
     if cached is not None:
         return cached
 
-    picture = background_photo(photo)
+    picture = background_photo(photo) or scene_background(photo, (W, H), age, theme)
     if picture is not None:
         img = picture.copy()
-        haze = Image.new("RGB", (W, H), theme["bg"])
-        img = Image.blend(img, haze, 0.55)
+        if background_photo(photo) is not None:
+            haze = Image.new("RGB", (W, H), theme["bg"])
+            img = Image.blend(img, haze, 0.55)
     else:
         img = make_background((W, H), age, phase)
         if THEME_BY_AGE.get(age) == "light":
@@ -363,6 +364,15 @@ def render_card(card, style, has_cat, age, phase, reveal=1.0, back=None):
         column_width = box_width / columns
         size = 58 if columns <= 3 else 44
         row_height = min(int((940 - top) / max(len(rows), 1)), 110)
+        # Кегль общий на весь столбец: подбор по каждой ячейке отдельно давал
+        # в одном столбце то крупные, то мелкие строки, и таблица разъезжалась.
+        column_size = []
+        for column in range(columns):
+            cells = [row[column] for row in rows if column < len(row)]
+            column_size.append(min((fit(draw, cell, size, column_width - 24).size for cell in cells), default=size))
+        # И один кегль на всю таблицу: разные размеры слева и справа читаются
+        # как две разные таблицы, поставленные рядом.
+        column_size = [min(column_size)] * columns
         for index, row in enumerate(rows):
             y = top + index * row_height
             if index == 0:
@@ -370,7 +380,7 @@ def render_card(card, style, has_cat, age, phase, reveal=1.0, back=None):
                                        radius=14, fill=theme["bg2"] if light else (30, 44, 96))
             for column, cell in enumerate(row[:columns]):
                 bold = index == 0 or column == 0
-                cell_font = fit(draw, cell, size, column_width - 24)
+                cell_font = fit(draw, cell, column_size[column], column_width - 24)
                 colour = ink if bold else word_colour if column > 0 and index > 0 else muted
                 draw.text((box_left + column * column_width, y), cell, font=cell_font, fill=colour)
         return img
