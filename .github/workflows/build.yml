@@ -1,0 +1,61 @@
+# Сборка видеоуроков iSpeak в облаке.
+#
+# Репозиторий публичный только ради бесплатных минут. Содержимое курса сюда не
+# попадает: план выпусков лежит зашифрованным (plan.json.enc), ключ живёт в
+# секретах GitHub, расшифрованный файл существует только внутри машины сборки
+# и исчезает вместе с ней. Готовые выпуски уходят в закрытый канал и артефактами
+# не выкладываются: артефакты публичного репозитория может скачать кто угодно.
+name: Сборка выпусков
+
+on:
+  workflow_dispatch:
+    inputs:
+      lang:
+        description: Язык выпусков
+        type: choice
+        options: [ru, kk, uz]
+        default: ru
+      send:
+        description: Отправить в Telegram по готовности
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pillow edge-tts
+
+      # Кэш озвучки: неизменившиеся фразы второй раз не синтезируются.
+      - name: Кэш озвучки
+        uses: actions/cache@v4
+        with:
+          path: video/work
+          key: voice-${{ inputs.lang }}-${{ matrix.shard }}-${{ hashFiles('plan.json.enc') }}
+          restore-keys: |
+            voice-${{ inputs.lang }}-${{ matrix.shard }}-
+
+      - name: Расшифровать план
+        env:
+          PLAN_KEY: ${{ secrets.PLAN_KEY }}
+        run: openssl enc -d -aes-256-cbc -pbkdf2 -in plan.json.enc -out video/plan.json -pass env:PLAN_KEY
+
+      - name: Собрать свою долю
+        run: python video/render.py --lang=${{ inputs.lang }} --shard=${{ matrix.shard }}/10
+
+      - name: Отправить в Telegram
+        if: ${{ inputs.send }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node send.mjs
