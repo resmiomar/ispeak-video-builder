@@ -424,7 +424,13 @@ def _window(d, x, y, w, h, tone):
 
 def scene_background(name, size, age, theme):
     """Комната по имени фона. Незнакомое имя возвращает None: тогда рисуется
-    обычный мягкий фон, и новый диалог не ломает сборку."""
+    обычный мягкий фон, и новый диалог не ломает сборку.
+
+    Комната пишется в три слоя: стена со светом от окна, дальняя обстановка,
+    ближние предметы у нижнего края. Слои разной светлоты дают глубину, без
+    которой кадр читается как аппликация. Всё приглушено: место должно
+    чувствоваться, но спорить с текстом ему нельзя.
+    """
     if name not in ("class", "home", "board"):
         return None
     w, h = size
@@ -433,37 +439,87 @@ def scene_background(name, size, age, theme):
     img = Image.new("RGB", (w, h), tone["wall"])
     d = ImageDraw.Draw(img)
 
+    def warm_light(cx, cy, radius):
+        """Пятно тёплого света: комната без него плоская, как чертёж."""
+        glow = Image.new("RGB", (w, h), tone["wall"])
+        gd = ImageDraw.Draw(glow)
+        gd.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=tone["warm"])
+        return Image.blend(img, glow.filter(ImageFilter.GaussianBlur(radius=120)), 0.5)
+
     if name == "class":
-        # Класс: доска на стене, ряд парт внизу, окно сбоку.
-        d.rectangle([0, h * 0.72, w, h], fill=tone["near"])
-        d.rounded_rectangle([w * 0.06, h * 0.10, w * 0.52, h * 0.52], radius=18, fill=tone["board"])
-        d.rounded_rectangle([w * 0.08, h * 0.50, w * 0.50, h * 0.53], radius=8, fill=tone["far"])
+        # Класс: доска на стене, ряд парт, окно со светом, глобус и стопка книг.
+        img = warm_light(w * 0.78, h * 0.3, w * 0.28)
+        d = ImageDraw.Draw(img)
+        d.rectangle([0, h * 0.70, w, h], fill=tone["near"])
+        d.rectangle([0, h * 0.70, w, h * 0.72], fill=tone["far"])
+        # доска
+        d.rounded_rectangle([w * 0.05, h * 0.09, w * 0.53, h * 0.54], radius=20, fill=tone["far"])
+        d.rounded_rectangle([w * 0.07, h * 0.11, w * 0.51, h * 0.52], radius=16, fill=tone["board"])
+        d.rounded_rectangle([w * 0.09, h * 0.50, w * 0.49, h * 0.535], radius=8, fill=tone["far"])
         for index in range(3):
-            x = w * (0.10 + index * 0.30)
-            d.rounded_rectangle([x, h * 0.78, x + w * 0.22, h * 0.83], radius=10, fill=tone["far"])
-            d.rectangle([x + 16, h * 0.83, x + 30, h * 0.95], fill=tone["far"])
-            d.rectangle([x + w * 0.22 - 30, h * 0.83, x + w * 0.22 - 16, h * 0.95], fill=tone["far"])
-        _window(d, w * 0.64, h * 0.12, w * 0.24, h * 0.34, tone)
+            y = h * (0.18 + index * 0.09)
+            d.line([w * 0.11, y, w * (0.2 + index * 0.09), y], fill=tone["wall"], width=6)
+        # окно
+        _window(d, w * 0.63, h * 0.11, w * 0.26, h * 0.36, tone)
+        d.rounded_rectangle([w * 0.60, h * 0.47, w * 0.92, h * 0.50], radius=6, fill=tone["far"])
+        # парты двумя рядами, дальний ряд мельче: так появляется глубина
+        for row, (scale, base) in enumerate(((0.72, 0.78), (1.0, 0.9))):
+            width = w * 0.2 * scale
+            for index in range(3):
+                x = w * (0.08 + index * 0.3) + row * w * 0.04
+                top = h * base
+                d.rounded_rectangle([x, top, x + width, top + h * 0.035], radius=8, fill=tone["far"])
+                d.rectangle([x + 14, top + h * 0.035, x + 26, top + h * 0.14], fill=tone["far"])
+                d.rectangle([x + width - 26, top + h * 0.035, x + width - 14, top + h * 0.14], fill=tone["far"])
+        # глобус на тумбе у окна
+        d.rounded_rectangle([w * 0.86, h * 0.62, w * 0.95, h * 0.71], radius=10, fill=tone["far"])
+        d.ellipse([w * 0.865, h * 0.55, w * 0.945, h * 0.63], fill=tone["board"])
 
     elif name == "home":
-        # Дом: окно, лампа, ковёр. Мебель низкая, чтобы не спорить с текстом.
-        d.rectangle([0, h * 0.74, w, h], fill=tone["near"])
-        _window(d, w * 0.08, h * 0.14, w * 0.26, h * 0.36, tone)
-        d.rounded_rectangle([w * 0.60, h * 0.60, w * 0.92, h * 0.76], radius=26, fill=tone["far"])
-        d.rounded_rectangle([w * 0.63, h * 0.52, w * 0.72, h * 0.62], radius=18, fill=tone["warm"])
-        d.ellipse([w * 0.30, h * 0.84, w * 0.72, h * 0.96], fill=tone["far"])
+        # Дом: окно с занавеской и цветком, диван, лампа, ковёр, полка.
+        img = warm_light(w * 0.2, h * 0.3, w * 0.26)
+        d = ImageDraw.Draw(img)
+        d.rectangle([0, h * 0.72, w, h], fill=tone["near"])
+        _window(d, w * 0.07, h * 0.13, w * 0.24, h * 0.34, tone)
+        d.rounded_rectangle([w * 0.05, h * 0.11, w * 0.33, h * 0.15], radius=10, fill=tone["far"])
+        # цветок на подоконнике
+        d.rounded_rectangle([w * 0.11, h * 0.44, w * 0.15, h * 0.49], radius=6, fill=tone["board"])
+        d.ellipse([w * 0.10, h * 0.39, w * 0.16, h * 0.45], fill=tone["board"])
+        # полка с книгами
+        d.rounded_rectangle([w * 0.42, h * 0.24, w * 0.58, h * 0.26], radius=6, fill=tone["far"])
+        for index in range(5):
+            x = w * (0.43 + index * 0.028)
+            d.rectangle([x, h * (0.17 + (index % 3) * 0.012), x + w * 0.018, h * 0.24], fill=tone["far"])
+        # диван и подушка
+        d.rounded_rectangle([w * 0.58, h * 0.58, w * 0.93, h * 0.78], radius=28, fill=tone["far"])
+        d.rounded_rectangle([w * 0.61, h * 0.54, w * 0.90, h * 0.62], radius=22, fill=tone["near"])
+        d.rounded_rectangle([w * 0.63, h * 0.50, w * 0.71, h * 0.60], radius=18, fill=tone["warm"])
+        # торшер
+        d.rectangle([w * 0.955, h * 0.42, w * 0.965, h * 0.78], fill=tone["far"])
+        d.polygon([(w * 0.93, h * 0.42), (w * 0.99, h * 0.42), (w * 0.975, h * 0.33), (w * 0.945, h * 0.33)],
+                  fill=tone["warm"])
+        # ковёр
+        d.ellipse([w * 0.28, h * 0.84, w * 0.78, h * 0.98], fill=tone["far"])
+        d.ellipse([w * 0.33, h * 0.86, w * 0.73, h * 0.96], fill=tone["near"])
 
     else:
-        # Доска: почти весь кадр это доска, потому что правило пишут на ней.
-        d.rectangle([0, h * 0.86, w, h], fill=tone["near"])
-        d.rounded_rectangle([w * 0.03, h * 0.05, w * 0.97, h * 0.84], radius=26, fill=tone["board"])
-        d.rounded_rectangle([w * 0.05, h * 0.07, w * 0.95, h * 0.82], radius=20, fill=tone["board"])
-        d.rounded_rectangle([w * 0.30, h * 0.84, w * 0.70, h * 0.87], radius=8, fill=tone["far"])
+        # Доска: почти весь кадр это доска. Рамка, полка, мел и тряпка, чтобы
+        # это была доска в классе, а не тёмный прямоугольник.
+        img = warm_light(w * 0.5, h * 0.2, w * 0.5)
+        d = ImageDraw.Draw(img)
+        d.rectangle([0, h * 0.84, w, h], fill=tone["near"])
+        d.rounded_rectangle([w * 0.03, h * 0.05, w * 0.97, h * 0.82], radius=26, fill=tone["far"])
+        d.rounded_rectangle([w * 0.045, h * 0.065, w * 0.955, h * 0.805], radius=20, fill=tone["board"])
+        # затёртые следы мела: доской пользуются
+        for index in range(3):
+            y = h * (0.12 + index * 0.24)
+            d.line([w * 0.08, y, w * 0.26, y - h * 0.01], fill=tone["far"], width=8)
+        d.rounded_rectangle([w * 0.03, h * 0.82, w * 0.97, h * 0.855], radius=10, fill=tone["far"])
+        d.rounded_rectangle([w * 0.10, h * 0.828, w * 0.16, h * 0.845], radius=6, fill=tone["wall"])
+        d.rounded_rectangle([w * 0.83, h * 0.822, w * 0.90, h * 0.85], radius=8, fill=tone["near"])
 
-    # Лёгкое размытие: сцена должна читаться как обстановка, а не как ещё одна
-    # картинка, с которой глаз спорит за внимание вместе с текстом.
-    img = img.filter(ImageFilter.GaussianBlur(radius=6))
-    return Image.blend(img, Image.new("RGB", (w, h), theme["bg"]), 0.35)
+    img = img.filter(ImageFilter.GaussianBlur(radius=5))
+    return Image.blend(img, Image.new("RGB", (w, h), theme["bg"]), 0.32)
 
 
 # ─────────────────────────────── вторая партия предметов

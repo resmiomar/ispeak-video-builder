@@ -31,6 +31,7 @@
 рисуется вдвое крупнее на прозрачном слое и уменьшается фильтром LANCZOS,
 а готовый слой кэшируется: в кадре меняется только рот, остальное совпадает.
 """
+import json
 import math
 import os
 from PIL import Image, ImageDraw
@@ -296,6 +297,10 @@ def photo(pose, mouth, who="son"):
     names = []
     for prefix in prefixes:
         names += [f"{prefix}{pose}-{state}", f"{prefix}{pose}-closed", f"{prefix}sit-{state}", f"{prefix}sit-closed"]
+    # Одна картинка на персонажа: mom.png и son.png. Рот к ней дорисовывается
+    # кодом, поэтому художнику хватает одной позы с закрытым ртом вместо
+    # четырёх состояний. Разговор от этого не страдает: открывается только рот.
+    names += [who]
     names += [f"{pose}-{state}", f"{pose}-closed", f"sit-{state}", "sit-closed"]
     for name in names:
         if name in _photos:
@@ -309,12 +314,63 @@ def photo(pose, mouth, who="son"):
     return None
 
 
+
+
+# ─────────────────────────────── рот поверх готовой картинки
+#
+# Художник рисует персонажа один раз, с закрытым ртом. Открытый рот во время
+# речи дорисовывается кодом: так на каждого героя нужна одна картинка вместо
+# четырёх, и любую из них можно заменить, не трогая остальные.
+#
+# Где именно рот, задаётся долями ширины и высоты картинки в mouth.json рядом
+# с ней. Значения по умолчанию подобраны под персонажа, сидящего лицом к нам,
+# и правятся одним числом после первого же кадра.
+MOUTH_SPOT = {"x": 0.5, "y": 0.42, "w": 0.10, "h": 0.075}
+_mouths: dict[str, Image.Image] = {}
+
+
+def mouth_spot(who):
+    path = os.path.join(PHOTOS, "mouth.json")
+    if not os.path.exists(path):
+        return MOUTH_SPOT
+    try:
+        with open(path, encoding="utf-8") as file:
+            data = json.load(file)
+        return {**MOUTH_SPOT, **data.get(who, {})}
+    except Exception:
+        # Кривой файл не должен ронять сборку: рот просто останется на месте
+        # по умолчанию, и это видно на первом же кадре.
+        return MOUTH_SPOT
+
+
+def with_mouth(picture, who, mouth):
+    """Копия картинки с открытым ртом. Закрытый рот оставляет её как есть."""
+    if mouth < MOUTH_OPEN:
+        return picture
+    key = f"{who}:{round(mouth, 1)}:{picture.width}"
+    ready = _mouths.get(key)
+    if ready is not None:
+        return ready
+    spot = mouth_spot(who)
+    layer = picture.copy()
+    draw = ImageDraw.Draw(layer)
+    cx, cy = picture.width * spot["x"], picture.height * spot["y"]
+    half_w = picture.width * spot["w"] / 2
+    half_h = picture.height * spot["h"] / 2 * (0.5 + mouth)
+    draw.ellipse([cx - half_w, cy - half_h, cx + half_w, cy + half_h], fill=(120, 52, 60))
+    draw.ellipse([cx - half_w * 0.55, cy + half_h * 0.05, cx + half_w * 0.55, cy + half_h * 0.85],
+                 fill=(226, 118, 132))
+    _mouths[key] = layer
+    return layer
+
+
 def paste_mascot(image, cx, bottom, scale, *, pose="sit", face="neutral", mouth=0.0, phase=0.0, who="son"):
     """Ставит персонажа так, чтобы низ лап лежал на заданной линии."""
     if scale <= 0:
         return
     picture = photo(pose, mouth, who)
     if picture is not None:
+        picture = with_mouth(picture, who, mouth)
         # Высота та же, что у рисованного запасного персонажа, поэтому замена
         # картинками не меняет вёрстку кадра.
         height = max(int(BOX_H * scale), 1)
