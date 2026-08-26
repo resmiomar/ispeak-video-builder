@@ -387,7 +387,8 @@ def with_mouth(picture, who, mouth):
     return layer
 
 
-def paste_mascot(image, cx, bottom, scale, *, pose="sit", face="neutral", mouth=0.0, phase=0.0, who="son"):
+def paste_mascot(image, cx, bottom, scale, *, pose="sit", face="neutral", mouth=0.0, phase=0.0,
+                 who="son", max_width=None):
     """Ставит персонажа так, чтобы низ лап лежал на заданной линии."""
     if scale <= 0:
         return
@@ -398,6 +399,11 @@ def paste_mascot(image, cx, bottom, scale, *, pose="sit", face="neutral", mouth=
         # картинками не меняет вёрстку кадра.
         height = max(int(BOX_H * scale), 1)
         width = max(int(picture.width * height / picture.height), 1)
+        # Ширину можно ограничить полосой героев: у сидящих поз со стулом
+        # картинка шире стоячих, и без предела сосед заезжает на текст.
+        if max_width and width > max_width:
+            height = max(int(height * max_width / width), 1)
+            width = max_width
         layer = picture.resize((width, height), Image.LANCZOS)
         bob = int(math.sin(phase * 2.2) * 7 * scale)
         image.paste(layer, (int(cx - width / 2), int(bottom - height + bob)), layer)

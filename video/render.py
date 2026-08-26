@@ -113,13 +113,21 @@ BAND_LINE = (222, 230, 244)
 WHITE_BG = (255, 255, 255)
 
 THEMES = {
-    "G1": {"word": 150, "big": 200, "hero": 0.84, "sentence": 128, "band": 78},
-    "G2": {"word": 132, "big": 180, "hero": 0.74, "sentence": 116, "band": 70},
+    "G1": {"word": 150, "big": 200, "hero": 0.78, "sentence": 128, "band": 78},
+    "G2": {"word": 132, "big": 180, "hero": 0.70, "sentence": 116, "band": 70},
     "G3": {"word": 116, "big": 160, "hero": 0.0, "sentence": 104, "band": 64},
 }
 THEME_BY_AGE = {"G1": "light", "G2": "light", "G3": "light"}
 
-MARGIN = 150            # поля листа
+# Кадр поделён на три полосы с зазорами. Раньше границ не было, и слово
+# упиралось в маму, а картинка налезала на букву: каждый элемент занимал
+# столько места, сколько успевал. Теперь у каждого своя полоса, и они не
+# спорят между собой.
+MARGIN = 110            # поля листа
+ART_ZONE = (110, 700)      # картинка в круге
+TEXT_ZONE = (790, 1400)    # буква, слово, предложение, таблица
+HERO_ZONE = (1470, 1900)   # персонажи
+GUTTER = 90                # обязательный зазор между полосами
 # Позы, при которых герой сидит: молчащий сосед тогда тоже садится, иначе один
 # стоит над другим и кадр выглядит случайным.
 SIT_POSES = {"sit", "sit-talk", "sit-point", "sit-hand", "sit-think", "sit-cheer", "sit-sad"}
@@ -130,9 +138,15 @@ POSE_BY_KIND = {"title": "wave", "outro": "thumb", "table": "board",
                 "pair": "sit-sad", "line": "sit-talk", "word": "point", "letter": "point"}
 # Настроение сцены перебивает вид кадра: вопрос это раздумье, верный ответ радость.
 POSE_BY_MOOD = {"think": "sit-think", "cheer": "sit-cheer", "wave": "wave", "talk": "sit-talk"}
+
+# Позы с чистой вырезкой. Остальные картинки набора сделаны на белом фоне, и у
+# них вокруг лап остаётся светлый ореол: в кадре это выглядит браком. Пока они
+# не перерисованы, поза сводится к чистой паре, а разнообразие вернётся одной
+# строкой отсюда, без пересборки чего-либо ещё.
+CLEAN_POSES = {"sit", "sit-talk"}
 BAND_TOP = 800          # верх ленты
-CIRCLE = (130, 70, 760, 700)   # круг под картинку
-TEXT_X = 900            # левый край текстовой колонки
+CIRCLE = (ART_ZONE[0], 150, ART_ZONE[1], 730)  # круг под картинку, ниже марки
+TEXT_X = TEXT_ZONE[0]   # левый край текстовой колонки
 
 
 def theme_of(age):
@@ -187,6 +201,21 @@ def blank_page(age, back=None):
     draw.line([0, BAND_TOP, W, BAND_TOP], fill=(226, 234, 248), width=3)
     _page_cache[key] = img
     return img
+
+
+def ground_shadow(image, cx, bottom, width):
+    """Мягкая тень под персонажем.
+
+    Вырезанная картинка лежит на фоне как наклейка, пока под ней нет тени.
+    Тень не рисует правду о свете, она лишь связывает героя с полом, и этого
+    хватает, чтобы кадр перестал выглядеть аппликацией.
+    """
+    layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    ImageDraw.Draw(layer).ellipse(
+        [cx - width / 2, bottom - width * 0.10, cx + width / 2, bottom + width * 0.10],
+        fill=(60, 60, 80, 70))
+    layer = layer.filter(ImageFilter.GaussianBlur(18))
+    image.paste(Image.alpha_composite(image.convert("RGBA"), layer).convert("RGB"), (0, 0))
 
 
 def draw_band(draw, age, columns):
@@ -272,8 +301,9 @@ def render_card(card, style, has_cat, age, phase, reveal=1.0, back=None, progres
     draw = ImageDraw.Draw(img)
     kind = card["kind"]
     right = W - MARGIN
-    # Правый край текста: там, где начинаются персонажи.
-    text_right = (1380 if hero_theme_has(age) else right)
+    # Правый край текста это начало полосы героев минус зазор: буквы к ним
+    # ближе чем на зазор не подходят никогда.
+    text_right = (HERO_ZONE[0] - GUTTER) if hero_theme_has(age) else right
 
     if kind in ("title", "outro"):
         # Ширина названия ограничена зоной героев: «Буквы A, B, C, D, E»
@@ -346,7 +376,8 @@ def render_card(card, style, has_cat, age, phase, reveal=1.0, back=None, progres
         rows = card["rows"][:6]
         columns = max(len(row) for row in rows)
         note = (card.get("note") or head or "").strip()
-        top = 60
+        # Ниже марки и значка возраста: они занимают верхние сто точек.
+        top = 130
         if note:
             note_font = fit(draw, note, 54, W - 2 * MARGIN)
             centred(draw, note, note_font, W / 2, top, NAVY)
@@ -384,7 +415,7 @@ def render_card(card, style, has_cat, age, phase, reveal=1.0, back=None, progres
         sub = (card.get("sub") or "").strip()
         note = (card.get("note") or "").strip()
         width = text_right - MARGIN
-        y = 150
+        y = 170
         if note and note != card["text"]:
             note_font = fit(draw, note, 46, width)
             draw.text((MARGIN, y), note, font=note_font, fill=LABEL)
@@ -578,19 +609,32 @@ async def build(video):
                                  phase=phase, who="son")
                 else:
                     # Поза берётся из сцены: приветствие стоя, показ у доски
-                    # стоя, объяснение и повтор сидя. Урок, где герои весь час
-                    # сидят, скучнее самого материала.
+                    # стоя, объяснение и повтор сидя.
                     wanted = POSE_BY_MOOD.get(scene.get("pose", ""),
                                               POSE_BY_KIND.get(scene["card"]["kind"], "sit-talk"))
-                    mom_pose = wanted if talking == "mom" else ("sit" if wanted in SIT_POSES else "listen")
-                    son_pose = wanted if talking == "son" else ("sit" if wanted in SIT_POSES else "listen")
-                    paste_mascot(img, 1500, BAND_TOP + 14 + bounce, hero_theme["hero"] * 1.5,
-                                 pose=mom_pose, face=scene.get("face", "neutral"),
-                                 mouth=levels[step] if talking == "mom" else 0.0, phase=phase, who="mom")
-                    paste_mascot(img, 1770, BAND_TOP + 14 + bounce, hero_theme["hero"] * 1.02,
-                                 pose=son_pose,
+                    if wanted not in CLEAN_POSES:
+                        wanted = "sit-talk"
+                    mom_pose = wanted if talking == "mom" else "sit"
+                    son_pose = wanted if talking == "son" else "sit"
+                    # Полоса героев делится между ними: мама шире, сын уже, и
+                    # оба обязаны в неё поместиться, иначе текст остаётся без
+                    # воздуха.
+                    # Рост задаётся высотой, а не шириной: у сидячих поз со
+                    # стулом картинка шире, и ограничение по ширине сплющивало
+                    # маму вдвое против сына.
+                    mom_x, son_x = 1580, 1810
+                    ground_shadow(img, mom_x, BAND_TOP - 6, 210)
+                    ground_shadow(img, son_x, BAND_TOP - 6, 180)
+                    paste_mascot(img, mom_x, BAND_TOP - 8 + bounce,
+                                 hero_theme["hero"] * 1.42, pose=mom_pose,
+                                 face=scene.get("face", "neutral"),
+                                 mouth=levels[step] if talking == "mom" else 0.0,
+                                 phase=phase, who="mom")
+                    paste_mascot(img, son_x, BAND_TOP - 8 + bounce,
+                                 hero_theme["hero"] * 1.12, pose=son_pose,
                                  face="happy" if talking == "son" else scene.get("face", "neutral"),
-                                 mouth=levels[step] if talking == "son" else 0.0, phase=phase + 0.7, who="son")
+                                 mouth=levels[step] if talking == "son" else 0.0,
+                                 phase=phase + 0.7, who="son")
             pipe.stdin.write(img.tobytes())
             frame += 1
         print(f"  {vid}: сцена {si + 1}/{len(video['scenes'])}", flush=True)

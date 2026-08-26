@@ -1,16 +1,16 @@
-# Graph Report - ispeak-video-builder  (2026-08-25)
+# Graph Report - ispeak-video-builder  (2026-08-26)
 
 ## Corpus Check
-- 7 files · ~21,185 words
+- 7 files · ~21,339 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 157 nodes · 193 edges · 15 communities (9 shown, 6 thin omitted)
-- Extraction: 64% EXTRACTED · 36% INFERRED · 0% AMBIGUOUS · INFERRED: 70 edges (avg confidence: 0.52)
+- 166 nodes · 209 edges · 17 communities (9 shown, 8 thin omitted)
+- Extraction: 67% EXTRACTED · 33% INFERRED · 0% AMBIGUOUS · INFERRED: 68 edges (avg confidence: 0.51)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `3ad8b3d7`
+- Built from commit: `c89e9378`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -28,37 +28,35 @@
 - [[_COMMUNITY__place|_place]]
 - [[_COMMUNITY_send.mjs|send.mjs]]
 - [[_COMMUNITY_ease_out_back|ease_out_back]]
+- [[_COMMUNITY_ease_out_back|ease_out_back]]
+- [[_COMMUNITY_make_background|make_background]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `render_card()` - 11 edges
-2. `background()` - 8 edges
-3. `build()` - 7 edges
-4. `_head()` - 6 edges
-5. `_colour_blob()` - 5 edges
-6. `_body()` - 5 edges
-7. `mascot_layer()` - 5 edges
-8. `paste_mascot()` - 5 edges
-9. `brand_font()` - 5 edges
-10. `draw_object()` - 4 edges
+1. `render_card()` - 12 edges
+2. `build()` - 10 edges
+3. `_head()` - 6 edges
+4. `paste_mascot()` - 6 edges
+5. `brand_font()` - 6 edges
+6. `draw_band()` - 6 edges
+7. `_body()` - 5 edges
+8. `mascot_layer()` - 5 edges
+9. `theme_of()` - 5 edges
+10. `hero_theme_has()` - 5 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `render_card()` --calls--> `draw_object()`  [INFERRED]
-  video/render.py → video/art.py
-- `background()` --calls--> `scene_background()`  [INFERRED]
-  video/render.py → video/art.py
-- `background()` --calls--> `make_background()`  [INFERRED]
-  video/render.py → video/art.py
-- `render_card()` --calls--> `ease_out_back()`  [INFERRED]
-  video/render.py → video/art.py
+- `build()` --calls--> `has_photo()`  [INFERRED]
+  video/render.py → video/mascot.py
+- `build()` --calls--> `paste_mascot()`  [INFERRED]
+  video/render.py → video/mascot.py
 
 ## Import Cycles
 - None detected.
 
-## Communities (15 total, 6 thin omitted)
+## Communities (17 total, 8 thin omitted)
 
 ### Community 1 - "render.py"
 Cohesion: 0.13
-Nodes (25): ease_out_back(), make_background(), Слои мягких пятен. Медленно плывут, поэтому кадр не мёртвый., Появление с лёгким перелётом: предмет как будто прыгает в кадр., background(), background_photo(), brand_font(), build() (+17 more)
+Nodes (28): background_photo(), blank_page(), brand_font(), build(), centred(), draw_band(), duration(), envelope() (+20 more)
 
 ### Community 2 - "_colour_blob"
 Cohesion: 0.40
@@ -81,28 +79,28 @@ Cohesion: 0.33
 Nodes (6): AGES, caption(), files, KINDS, OUT, send()
 
 ### Community 14 - "ease_out_back"
-Cohesion: 0.13
-Nodes (23): _arm(), _bezier(), _body(), _ears(), _eyes(), _head(), mascot_layer(), mouth_spot() (+15 more)
+Cohesion: 0.12
+Nodes (25): _arm(), _bezier(), _body(), _ears(), _eyes(), has_photo(), _head(), mascot_layer() (+17 more)
 
 ## Knowledge Gaps
 - **6 isolated node(s):** `OUT`, `KINDS`, `AGES`, `files`, `Noto Emoji (Google)` (+1 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **6 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **8 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `render_card()` connect `render.py` to `draw_object`?**
-  _High betweenness centrality (0.018) - this node is a cross-community bridge._
-- **Why does `draw_object()` connect `draw_object` to `art.py`, `render.py`?**
-  _High betweenness centrality (0.016) - this node is a cross-community bridge._
-- **Why does `background()` connect `render.py` to `scene_background`?**
-  _High betweenness centrality (0.015) - this node is a cross-community bridge._
-- **Are the 2 inferred relationships involving `render_card()` (e.g. with `draw_object()` and `ease_out_back()`) actually correct?**
-  _`render_card()` has 2 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 2 inferred relationships involving `background()` (e.g. with `make_background()` and `scene_background()`) actually correct?**
-  _`background()` has 2 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `Лицо крупным планом со стрелкой на нос: сам по себе нос не читается.`, `Цвет показываем кляксой краски: у слова «red» предмета нет.`, `Файл картинки для слова, если он положен. Иначе None.` to the rest of the system?**
-  _35 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Why does `build()` connect `render.py` to `ease_out_back`?**
+  _High betweenness centrality (0.025) - this node is a cross-community bridge._
+- **Why does `paste_mascot()` connect `ease_out_back` to `render.py`?**
+  _High betweenness centrality (0.014) - this node is a cross-community bridge._
+- **Are the 2 inferred relationships involving `build()` (e.g. with `has_photo()` and `paste_mascot()`) actually correct?**
+  _`build()` has 2 INFERRED edges - model-reasoned connections that need verification._
+- **What connects `Розетки барса: кольцо с пятном внутри, размеры чуть разные.      Ровные одинаков`, `Кубическая кривая точками: Pillow не умеет кривые, только ломаные.`, `Хвост барса длиннее тела и загибается кверху.      Рисуется не одной линией, а ц` to the rest of the system?**
+  _40 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `art.py` be split into smaller, more focused modules?**
   _Cohesion score 0.028985507246376812 - nodes in this community are weakly interconnected._
+- **Should `render.py` be split into smaller, more focused modules?**
+  _Cohesion score 0.12807881773399016 - nodes in this community are weakly interconnected._
+- **Should `ease_out_back` be split into smaller, more focused modules?**
+  _Cohesion score 0.12307692307692308 - nodes in this community are weakly interconnected._
