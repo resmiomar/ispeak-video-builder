@@ -281,6 +281,20 @@ MOUTH_OPEN = 0.22
 _photos: dict[str, Image.Image | None] = {}
 
 
+def has_photo(who):
+    """Есть ли утверждённая картинка персонажа.
+
+    Мама включается в кадр только по файлу mom-approved.png. Пока его нет, в
+    кадре стоит один сын: смешивать присланного героя с нарисованным кодом
+    нельзя, разница видна сразу. Черновые файлы в папке лежать могут, на кадр
+    они не влияют.
+    """
+    if who == "mom":
+        return os.path.exists(os.path.join(PHOTOS, "mom-approved.png"))
+    return any(os.path.exists(os.path.join(PHOTOS, f"{name}.png"))
+               for name in (who, f"{who}-idle", f"{who}-sit-closed"))
+
+
 def photo(pose, mouth, who="son"):
     """Кадр персонажа под позу и состояние рта. Нет файла — None.
 
@@ -293,15 +307,18 @@ def photo(pose, mouth, who="son"):
     # картинки Чипа не пришлось переименовывать.
     # Роль ищется под своим именем и под старым «chip-»: уже присланные
     # картинки переименовывать не придётся.
-    prefixes = [f"{who}-"] + (["chip-"] if who == "son" else [])
-    names = []
-    for prefix in prefixes:
-        names += [f"{prefix}{pose}-{state}", f"{prefix}{pose}-closed", f"{prefix}sit-{state}", f"{prefix}sit-closed"]
-    # Одна картинка на персонажа: mom.png и son.png. Рот к ней дорисовывается
-    # кодом, поэтому художнику хватает одной позы с закрытым ртом вместо
-    # четырёх состояний. Разговор от этого не страдает: открывается только рот.
-    names += [who]
-    names += [f"{pose}-{state}", f"{pose}-closed", f"sit-{state}", "sit-closed"]
+    if who == "mom" and not has_photo("mom"):
+        return None
+    # Порядок поиска: сначала точная поза героя, потом сидячая, потом любая
+    # присланная картинка. Недостающая поза не должна ронять выпуск, но и
+    # подменять её чужой ролью нельзя: мама в позе сына сразу видна.
+    names = [f"{who}-{pose}-{state}", f"{who}-{pose}", f"{who}-{pose}-closed"]
+    if pose not in ("sit", "sit-talk"):
+        names += [f"{who}-sit-talk" if state == "open" else f"{who}-sit"]
+    names += [f"{who}-sit", f"{who}-idle", who]
+    if who == "son":
+        names += [f"chip-{pose}-{state}", "chip-sit-closed"]
+
     for name in names:
         if name in _photos:
             if _photos[name] is not None:
@@ -344,8 +361,14 @@ def mouth_spot(who):
 
 
 def with_mouth(picture, who, mouth):
-    """Копия картинки с открытым ртом. Закрытый рот оставляет её как есть."""
-    if mouth < MOUTH_OPEN:
+    """Копия картинки с открытым ртом. Закрытый рот оставляет её как есть.
+
+    Если точка рта не задана в mouth.json, картинка не трогается вовсе: у
+    присланного персонажа рот уже открыт, и вторая пасть поверх выглядела бы
+    уродством. Анимация губ включается тогда, когда художник даст картинку с
+    закрытым ртом и мы отметим место.
+    """
+    if mouth < MOUTH_OPEN or not os.path.exists(os.path.join(PHOTOS, "mouth.json")):
         return picture
     key = f"{who}:{round(mouth, 1)}:{picture.width}"
     ready = _mouths.get(key)

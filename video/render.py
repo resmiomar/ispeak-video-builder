@@ -12,10 +12,10 @@ TypeScript, у которого есть доступ к ТЗ. Здесь тол
 Запуск: scripts/video/.venv/bin/python scripts/video/render.py [id ...]
 """
 import asyncio, hashlib, json, math, os, subprocess, sys, wave
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 import edge_tts
 from art import draw_object, make_background, ease_out_back, scene_background
-from mascot import paste_mascot
+from mascot import paste_mascot, has_photo
 
 W, H, FPS = 1920, 1080, 25
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -28,14 +28,24 @@ FONT = os.path.join(HERE, "assets", "fonts", "Montserrat.ttf")
 FALLBACK_FONT = "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"
 
 
+# Шрифт: Nunito, круглый и с кириллицей. Montserrat остаётся запасным.
+# Круглые формы взяты из образцов дизайна: детский плакат на белом листе
+# читается именно за счёт мягких букв, строгая геометрия делает его взрослым.
+ROUND_FONT = os.path.join(HERE, "assets", "fonts", "Nunito.ttf")
+
+
 def brand_font(size, weight="SemiBold"):
     """Шрифт нужного кегля и начертания, с запасным вариантом."""
-    try:
-        face = ImageFont.truetype(FONT, size)  # переменный файл
-        face.set_variation_by_name(weight)
-        return face
-    except OSError:
-        return ImageFont.truetype(FALLBACK_FONT, size)
+    # Начертания у Nunito те же по именам, поэтому подмена шрифта не требует
+    # правок в разметке кадров.
+    for path in (ROUND_FONT, FONT):
+        try:
+            face = ImageFont.truetype(path, size)
+            face.set_variation_by_name(weight)
+            return face
+        except OSError:
+            continue
+    return ImageFont.truetype(FALLBACK_FONT, size)
 
 # Палитра бренда: тёмно-синий и жёлтый, как на фирменном листе персонажа.
 # Раньше кадр был фиолетово-мятным и с брендом не совпадал.
@@ -81,123 +91,133 @@ os.makedirs(OUT, exist_ok=True)
 
 
 
-# ─────────────────────────────── темы оформления
+# ─────────────────────────────── оформление
 #
-# Два вида кадра вместо одного. Светлый для младших: белый экран дружелюбнее
-# тёмного и совпадает с фирменным листом персонажа. Полосы для средних и
-# старших: жёлтая плашка с картинкой сверху, синяя с текстом снизу, кадр
-# читается с любого расстояния и работает обоими цветами бренда.
+# Утверждённый вид: белый лист, картинка в круге слева, буква и слово справа,
+# персонажи рядом со словом, а внизу лента со служебными строками.
+#
+# Лента одна и та же во всех выпусках, и в этом её смысл: ребёнок знает, что
+# перевод всегда в правом нижнем углу, и не ищет его глазами заново на каждом
+# кадре. Цвет тоже не декоративный: английское синее, перевод зелёный,
+# ошибочное красное.
+BLUE = (31, 118, 224)
+NAVY = (16, 42, 110)
+RED = (228, 30, 45)
+GREEN = (60, 168, 80)
+GREY = (110, 118, 134)
+LABEL = (152, 163, 183)
+PEACH = (255, 233, 214)
+SKY = (223, 238, 255)
+BAND_BG = (245, 248, 254)
+BAND_LINE = (222, 230, 244)
+WHITE_BG = (255, 255, 255)
+
 THEMES = {
-    "light": {
-        "bg": (247, 248, 252),
-        "bg2": (236, 240, 250),
-        "warm": (255, 243, 205),
-        "panel": (255, 255, 255),
-        "ink": (18, 26, 60),
-        "word": (198, 128, 0),
-        "muted": (110, 122, 155),
-        "accent": (255, 198, 41),
-        "hero_x": 1800,
-        "mom_dx": -230,
-        "hero_scale": 0.62,
-        "mom_scale": 0.95,
-        "text_x": 740,
-        "text_w": 560,
-        "art_x": 360,
-    },
-    "bands": {
-        "bg": (18, 26, 60),
-        "bg2": (12, 18, 44),
-        "warm": (255, 198, 41),
-        "panel": (255, 198, 41),
-        "ink": (255, 255, 255),
-        "word": (255, 198, 41),
-        "muted": (170, 185, 220),
-        "accent": (255, 198, 41),
-        "hero_x": 150,
-        "mom_dx": 215,
-        "hero_scale": 0.52,
-        "mom_scale": 0.72,
-        "text_x": 620,
-        "text_w": 1140,
-        "art_x": 1120,
-    },
+    "G1": {"word": 150, "big": 200, "hero": 0.84, "sentence": 128, "band": 78},
+    "G2": {"word": 132, "big": 180, "hero": 0.74, "sentence": 116, "band": 70},
+    "G3": {"word": 116, "big": 160, "hero": 0.0, "sentence": 104, "band": 64},
 }
-THEME_BY_AGE = {"G1": "light", "G2": "bands", "G3": "bands"}
+THEME_BY_AGE = {"G1": "light", "G2": "light", "G3": "light"}
+
+MARGIN = 150            # поля листа
+# Позы, при которых герой сидит: молчащий сосед тогда тоже садится, иначе один
+# стоит над другим и кадр выглядит случайным.
+SIT_POSES = {"sit", "sit-talk", "sit-point", "sit-hand", "sit-think", "sit-cheer", "sit-sad"}
+
+# Поза выбирается по виду кадра, а не по одному правилу на весь выпуск:
+# приветствие стоя, правило у доски, слово с показом, разбор ошибки сидя.
+POSE_BY_KIND = {"title": "wave", "outro": "thumb", "table": "board",
+                "pair": "sit-sad", "line": "sit-talk", "word": "point", "letter": "point"}
+# Настроение сцены перебивает вид кадра: вопрос это раздумье, верный ответ радость.
+POSE_BY_MOOD = {"think": "sit-think", "cheer": "sit-cheer", "wave": "wave", "talk": "sit-talk"}
+BAND_TOP = 800          # верх ленты
+CIRCLE = (130, 70, 760, 700)   # круг под картинку
+TEXT_X = 900            # левый край текстовой колонки
 
 
 def theme_of(age):
-    return THEMES[THEME_BY_AGE.get(age, "bands")]
+    return THEMES.get(age, THEMES["G2"])
 
 
-# Готовые фоны кладутся сюда файлами <имя>.png, 16:9. Нет файла — рисуется
-# свой фон цветами темы.
+def hero_theme_has(age):
+    """У старших персонажей нет: подростку мультяшные коты мешают."""
+    return theme_of(age)["hero"] > 0
+
+
+# ─────────────────────────────── лист и лента
 BACKGROUNDS = os.path.join(HERE, "assets", "backgrounds")
-_bg_photos: dict[str, Image.Image | None] = {}
+_page_cache: dict[str, Image.Image] = {}
+_rooms: dict[str, Image.Image | None] = {}
 
 
 def background_photo(name):
+    """Комната по имени фона. Нет файла - вернётся None, и кадр останется
+    белым: новый диалог не должен ронять сборку из-за недостающей картинки."""
     if not name:
         return None
-    if name in _bg_photos:
-        return _bg_photos[name]
+    if name in _rooms:
+        return _rooms[name]
     path = os.path.join(BACKGROUNDS, f"{name}.png")
-    picture = None
+    room = None
     if os.path.exists(path):
-        picture = Image.open(path).convert("RGB").resize((W, H), Image.LANCZOS)
-    _bg_photos[name] = picture
-    return picture
+        room = Image.open(path).convert("RGB")
+        if room.size != (W, H):
+            room = room.resize((W, H), Image.LANCZOS)
+    _rooms[name] = room
+    return room
 
 
-# ─────────────────────────────── кадры
-# Фон пересчитывается не каждый кадр, а раз в полсекунды: пятна плывут
-# медленно, разницы не видно, а времени сборки уходит в двенадцать раз меньше.
-BG_STEP = 0.5
-_bg_cache: dict[tuple[str, int], Image.Image] = {}
+def blank_page(age, back=None):
+    """Лист выпуска: комната на фоне, поверх светлая дымка, снизу лента.
 
-
-def background(age, phase, photo=None):
-    """Фон кадра: готовая картинка, если положена, иначе свой мягкий фон.
-
-    Поверх готовой картинки кладётся дымка цветом темы: без неё белый текст на
-    пёстрой фотографии не читается, а читаемость слова здесь важнее красоты
-    фона.
+    Дымка обязательна. Без неё тёмный текст ложится на мебель и полки, и кадр
+    приходится читать, а не смотреть. С ней комната остаётся узнаваемой, но
+    уходит на второй план, как и должна.
     """
-    theme = theme_of(age)
-    key = (age, photo or "", int(phase / BG_STEP))
-    cached = _bg_cache.get(key)
-    if cached is not None:
-        return cached
-
-    picture = background_photo(photo) or scene_background(photo, (W, H), age, theme)
-    if picture is not None:
-        img = picture.copy()
-        if background_photo(photo) is not None:
-            haze = Image.new("RGB", (W, H), theme["bg"])
-            img = Image.blend(img, haze, 0.55)
-    else:
-        img = make_background((W, H), age, phase)
-        if THEME_BY_AGE.get(age) == "light":
-            # Светлая тема: мягкие пятна на белом, а не тёмный градиент.
-            img = Image.new("RGB", (W, H), theme["bg"])
-            draw = ImageDraw.Draw(img)
-            draw.ellipse([-260, -320, 720, 640], fill=theme["bg2"])
-            draw.ellipse([1380, 660, 2260, 1420], fill=theme["warm"])
-
+    key = f"{age}:{back or ''}"
+    ready = _page_cache.get(key)
+    if ready is not None:
+        return ready
+    img = Image.new("RGB", (W, H), WHITE_BG)
+    room = background_photo(back)
+    if room is not None:
+        img = Image.blend(room, Image.new("RGB", (W, H), WHITE_BG), 0.62)
     draw = ImageDraw.Draw(img)
-    draw.text((80, 60), "iSpeak", font=brand_font(38, "Bold"), fill=theme["ink"])
-    _bg_cache.clear()
-    _bg_cache[key] = img
+    draw.rectangle([0, BAND_TOP, W, H], fill=BAND_BG)
+    draw.line([0, BAND_TOP, W, BAND_TOP], fill=(226, 234, 248), width=3)
+    _page_cache[key] = img
     return img
 
 
-def fit(draw, text, size, max_width):
+def draw_band(draw, age, columns):
+    """Служебная строка внизу: ярлык мелким серым, значение крупным цветным.
+
+    Пустых колонок не бывает: если читать нечего, колонка просто не рисуется,
+    и оставшиеся занимают всю ширину. Иначе лента выглядела бы поломанной.
+    """
+    columns = [item for item in columns if item and item[1]]
+    if not columns:
+        return
+    size = theme_of(age)["band"]
+    step = (W - 2 * MARGIN) / len(columns)
+    for index, (label, value, colour) in enumerate(columns):
+        x = MARGIN + index * step
+        draw.text((x, BAND_TOP + 40), label, font=brand_font(28, "ExtraBold"), fill=LABEL)
+        value_font = fit(draw, value, size, step - 90)
+        draw.text((x, BAND_TOP + 88), value, font=value_font, fill=colour)
+        if index:
+            draw.line([x - 55, BAND_TOP + 40, x - 55, H - 55], fill=BAND_LINE, width=3)
+
+
+def fit(draw, text, size, max_width, weight="ExtraBold"):
+    # Начертание по умолчанию жирное: в образце дизайна текст плотный, тонкие
+    # буквы на белом листе теряются.
     while size > 28:
-        font = brand_font(size)
+        font = brand_font(size, weight)
         if draw.textlength(text, font=font) <= max_width:
             return font
         size -= 6
-    return brand_font(size)
+    return brand_font(size, weight)
 
 
 def wrap_lines(draw, text, font, max_width):
@@ -220,206 +240,164 @@ def centred(draw, text, font, cx, y, fill, stroke=0, stroke_fill=None):
               stroke_width=stroke, stroke_fill=stroke_fill or fill)
 
 
-def render_card(card, style, has_cat, age, phase, reveal=1.0, back=None):
-    """Кадр карточки в теме своего возраста.
+AGE_LABEL = {"G1": "7-9 лет", "G2": "10-13 лет", "G3": "14-17 лет"}
 
-    Светлая тема (младшие): картинка слева, крупный текст справа, персонаж в
-    правом нижнем углу. Полосы (средние и старшие): жёлтая плашка с картинкой
-    сверху, синяя с текстом снизу, персонаж слева.
 
-    Кегль текста в обеих темах крупнее прежнего: слово на экране должно
-    читаться с телефона на вытянутой руке, и именно оно, а не фон, главное.
+def mark(draw, age):
+    """Марка продукта и возраст в углу кадра.
+
+    Ролик расходится по чужим лентам и должен называть себя сам: без подписи
+    он ничей. Возраст стоит рядом, потому что первый вопрос родителя не «что
+    это», а «моему ли ребёнку это показывать».
+    """
+    draw.text((MARGIN, 50), "iSpeak", font=brand_font(42, "ExtraBold"), fill=BLUE)
+    label = AGE_LABEL.get(age, "")
+    if not label:
+        return
+    font = brand_font(30, "ExtraBold")
+    width = draw.textlength(label, font=font)
+    draw.rounded_rectangle([MARGIN + 160, 50, MARGIN + 200 + width, 96], radius=23, fill=SKY)
+    draw.text((MARGIN + 180, 57), label, font=font, fill=NAVY)
+
+
+def render_card(card, style, has_cat, age, phase, reveal=1.0, back=None, progress=None, head=None):
+    """Кадр утверждённого вида.
+
+    Верх кадра держит главное: картинку, букву, слово или предложение. Низ
+    держит служебное: как читается, что значит. Разделение постоянное, поэтому
+    ребёнок каждый раз знает, куда смотреть, и не перечитывает кадр целиком.
     """
     theme = theme_of(age)
-    light = THEME_BY_AGE.get(age) == "light"
-    img = background(age, phase, card.get("background") or back).copy()
+    img = blank_page(age, card.get("background") or back).copy()
     draw = ImageDraw.Draw(img)
     kind = card["kind"]
-
-    ink, muted, word_colour, accent = theme["ink"], theme["muted"], theme["word"], theme["accent"]
-    text_x = theme["text_x"]
-    # Ширина текста ограничена зоной персонажа: раньше длинное слово заезжало
-    # прямо на кота, и читалось ни то ни другое.
-    text_width = theme["text_w"]
-    art_x, art_y = (theme["art_x"], 430) if light else (theme["art_x"], 300)
+    right = W - MARGIN
+    # Правый край текста: там, где начинаются персонажи.
+    text_right = (1380 if hero_theme_has(age) else right)
 
     if kind in ("title", "outro"):
-        title_font = fit(draw, card["title"], int(style["big"] * 0.62), text_width if light else W - 700)
-        if light:
-            draw.text((text_x, 330), card["title"], font=title_font, fill=ink)
-            sub_font = fit(draw, card["sub"], 56, text_width)
-            draw.text((text_x, 330 + title_font.size * 1.25), card["sub"], font=sub_font, fill=muted)
-            draw.rounded_rectangle([text_x, 330 + title_font.size * 1.25 + sub_font.size + 40,
-                                    text_x + 220, 330 + title_font.size * 1.25 + sub_font.size + 54],
-                                   radius=7, fill=accent)
-        else:
-            draw.rounded_rectangle([-60, -60, W + 60, 470], radius=80, fill=theme["panel"])
-            centred(draw, card["title"], fit(draw, card["title"], int(style["big"] * 0.5), W - 700),
-                    W / 2 + 110, 170, theme["bg"])
-            sub_font = fit(draw, card["sub"], 56, W - 800)
-            centred(draw, card["sub"], sub_font, W / 2 + 110, 620, muted)
+        # Ширина названия ограничена зоной героев: «Буквы A, B, C, D, E»
+        # раньше уезжало прямо на маму и обрывалось.
+        title_w = text_right - MARGIN - 90
+        title_font = fit(draw, card["title"], theme["big"] + 40, title_w)
+        lines_ = wrap_lines(draw, card["title"], title_font, title_w)
+        block = len(lines_) * (title_font.size + 22)
+        y = (BAND_TOP - block) / 2
+        for line in lines_:
+            centred(draw, line, title_font, MARGIN + title_w / 2, y, NAVY)
+            y += title_font.size + 22
+        if card.get("sub"):
+            centred(draw, card["sub"], brand_font(theme["band"], "ExtraBold"),
+                    MARGIN + title_w / 2, BAND_TOP + 88, BLUE)
+        mark(draw, age)
         return img
 
-    if kind in ("letter", "word"):
-        symbol = card.get("symbol")
-        scale = (2.2 if light else 2.4) * ease_out_back(reveal)
-        if light:
-            drew = draw_object(img, card["word"], art_x, 500, scale)
-            draw = ImageDraw.Draw(img)
-            y = 230
-            if symbol:
-                big = brand_font(int(style["big"] * 0.66), "Bold")
-                draw.text((text_x, y), symbol, font=big, fill=ink)
-                # Рядом с буквой её название русскими буквами: «эй». Значок
-                # /æ/ семилетке ничего не говорит, название говорит.
-                if card.get("name"):
-                    name_font = brand_font(58, "Medium")
-                    draw.text((text_x + draw.textlength(symbol, font=big) + 34, y + big.size * 0.42),
-                              card["name"], font=name_font, fill=muted)
-                y += big.size * 1.05
-                if card.get("sound"):
-                    chip = brand_font(42, "Medium")
-                    cw = draw.textlength(card["sound"], font=chip)
-                    draw.rounded_rectangle([text_x, y, text_x + cw + 48, y + 64], radius=32, fill=theme["bg2"])
-                    draw.text((text_x + 24, y + 8), card["sound"], font=chip, fill=muted)
-                    y += 88
-            word_font = fit(draw, card["word"], int(style["word"] * 1.05), text_width)
-            draw.text((text_x, y), card["word"], font=word_font, fill=word_colour)
-            y += word_font.size * 1.02
-            # Как читается слово русскими буквами. Звук без пары в русском
-            # остаётся значком, иначе запись научит ошибке «синк» вместо think.
-            if card.get("read"):
-                read_font = fit(draw, card["read"], 64, text_width)
-                draw.text((text_x, y), card["read"], font=read_font, fill=ink)
-                y += read_font.size * 1.05
-            tr_font = fit(draw, card["translation"], 58, text_width)
-            draw.text((text_x, y), card["translation"], font=tr_font, fill=muted)
-            if card.get("example"):
-                ex_font = fit(draw, card["example"], 48, text_width)
-                draw.text((text_x, y + tr_font.size + 34), card["example"], font=ex_font, fill=muted)
-            return img
+    mark(draw, age)
 
-        draw.rounded_rectangle([-60, -60, W + 60, 560], radius=80, fill=theme["panel"])
-        draw_object(img, card["word"], art_x, 250, scale)
+    if kind in ("letter", "word"):
+        scale = 2.2 * ease_out_back(reveal)
+        cx = (CIRCLE[0] + CIRCLE[2]) / 2
+        cy = (CIRCLE[1] + CIRCLE[3]) / 2
+        draw.ellipse(CIRCLE, fill=PEACH)
+        drew = draw_object(img, card["word"], cx, cy, scale)
         draw = ImageDraw.Draw(img)
-        y = 620
-        if symbol:
-            big = brand_font(int(style["big"] * 0.58), "Bold")
-            centred(draw, symbol, big, W / 2 + 110, y, ink)
-            y += big.size * 1.05
-            if card.get("sound"):
-                chip = brand_font(44, "Medium")
-                cw = draw.textlength(card["sound"], font=chip)
-                draw.rounded_rectangle([W / 2 + 110 - cw / 2 - 26, y, W / 2 + 110 + cw / 2 + 26, y + 64],
-                                       radius=32, fill=(30, 44, 96))
-                draw.text((W / 2 + 110 - cw / 2, y + 8), card["sound"], font=chip, fill=muted)
-                y += 84
-        centre_x = W / 2 + 110
-        word_font = fit(draw, card["word"], int(style["word"] * 0.95), text_width)
-        centred(draw, card["word"], word_font, centre_x, y, word_colour)
-        y += word_font.size * 1.05
-        tr_font = fit(draw, card["translation"], 58, text_width)
-        centred(draw, card["translation"], tr_font, centre_x, y, muted)
-        if card.get("example") and y + tr_font.size + 70 < H - 40:
-            ex_font = fit(draw, card["example"], 46, text_width)
-            centred(draw, card["example"], ex_font, centre_x, y + tr_font.size + 30, muted)
+        if not drew:
+            # Картинки нет: в круге стоит первая буква слова, а не пустота.
+            centred(draw, card["word"][:1].upper(), brand_font(280, "ExtraBold"), cx, cy - 160, (255, 214, 184))
+
+        width = text_right - TEXT_X
+        if card.get("symbol"):
+            symbol_font = fit(draw, card["symbol"], theme["big"], width)
+            draw.text((TEXT_X, 130), card["symbol"], font=symbol_font, fill=BLUE)
+            word_font = fit(draw, card["word"], theme["word"], width)
+            draw.text((TEXT_X, 420), card["word"], font=word_font, fill=NAVY)
+        else:
+            word_font = fit(draw, card["word"], theme["word"] + 40, width)
+            draw.text((TEXT_X, 250), card["word"], font=word_font, fill=NAVY)
+            if card.get("example"):
+                ex_font = fit(draw, card["example"], 54, width)
+                draw.text((TEXT_X, 470), card["example"], font=ex_font, fill=GREY)
+
+        draw_band(draw, age, [
+            ("БУКВА", card.get("name", ""), BLUE),
+            ("СЛОВО", card["word"], NAVY),
+            ("ЧИТАЕТСЯ", card.get("read", ""), GREY),
+            ("ПЕРЕВОД", card.get("translation", ""), GREEN),
+        ])
         return img
 
     if kind == "pair":
-        wrong_bg = (255, 233, 233) if light else (48, 26, 44)
-        right_bg = (228, 248, 238) if light else (20, 48, 40)
-        red, green = (206, 58, 58), (26, 150, 100) if light else (74, 222, 155)
-        box_left, box_width = (text_x - 40, text_width + 80) if light else (text_x, W - text_x - 160)
-        draw.rounded_rectangle([box_left, 250, box_left + box_width, 500], radius=32, fill=wrong_bg)
-        draw.text((box_left + 50, 285), "не так", font=brand_font(38, "Bold"), fill=red)
-        wf = fit(draw, card["wrong"], 78, box_width - 110)
-        draw.text((box_left + 50, 350), card["wrong"], font=wf, fill=red)
-        draw.rounded_rectangle([box_left, 560, box_left + box_width, 810], radius=32, fill=right_bg)
-        draw.text((box_left + 50, 595), "верно", font=brand_font(38, "Bold"), fill=green)
-        rf = fit(draw, card["right"], 78, box_width - 110)
-        draw.text((box_left + 50, 660), card["right"], font=rf, fill=green)
-        # Переводится только правильная фраза: перевод неправильной поставил бы
-        # её в один ряд с образцом.
-        sub = (card.get("sub") or "").strip()
-        if sub:
-            sub_font = fit(draw, sub, 48, box_width - 110)
-            draw.text((box_left + 50, 850), sub, font=sub_font, fill=muted)
+        width = text_right - MARGIN
+        block_h = 200
+        y = 150
+        draw.rounded_rectangle([MARGIN, y, MARGIN + width, y + block_h], radius=34, fill=(255, 238, 238))
+        draw.text((MARGIN + 44, y + 26), "не так", font=brand_font(36, "ExtraBold"), fill=RED)
+        wf = fit(draw, card["wrong"], 80, width - 100)
+        draw.text((MARGIN + 44, y + 80), card["wrong"], font=wf, fill=RED)
+        y += block_h + 60
+        draw.rounded_rectangle([MARGIN, y, MARGIN + width, y + block_h], radius=34, fill=(232, 250, 236))
+        draw.text((MARGIN + 44, y + 26), "верно", font=brand_font(36, "ExtraBold"), fill=GREEN)
+        rf = fit(draw, card["right"], 80, width - 100)
+        draw.text((MARGIN + 44, y + 80), card["right"], font=rf, fill=GREEN)
+        draw_band(draw, age, [("ПЕРЕВОД", card.get("sub", ""), GREEN)])
         return img
 
     if kind == "table":
-        # Таблица формы: то, чего не хватало в объяснении правила. Ребёнок
-        # должен увидеть все четыре строки разом, иначе «откуда взялось does»
-        # остаётся без ответа.
         rows = card["rows"][:6]
-        # Таблица начинается правее героев: нижние строки иначе уходят им за спину.
-        box_left = max(text_x, 560)
-        box_width = W - box_left - 120
-        note = (card.get("note") or "").strip()
-        top = 210
-        if note:
-            note_font = fit(draw, note, 44, box_width)
-            draw.text((box_left, 170), note, font=note_font, fill=muted)
-            top = 170 + note_font.size + 34
         columns = max(len(row) for row in rows)
-        column_width = box_width / columns
-        size = 58 if columns <= 3 else 44
-        row_height = min(int((940 - top) / max(len(rows), 1)), 110)
-        # Кегль общий на весь столбец: подбор по каждой ячейке отдельно давал
-        # в одном столбце то крупные, то мелкие строки, и таблица разъезжалась.
-        column_size = []
-        for column in range(columns):
-            cells = [row[column] for row in rows if column < len(row)]
-            column_size.append(min((fit(draw, cell, size, column_width - 24).size for cell in cells), default=size))
-        # И один кегль на всю таблицу: разные размеры слева и справа читаются
-        # как две разные таблицы, поставленные рядом.
-        column_size = [min(column_size)] * columns
+        note = (card.get("note") or head or "").strip()
+        top = 60
+        if note:
+            note_font = fit(draw, note, 54, W - 2 * MARGIN)
+            centred(draw, note, note_font, W / 2, top, NAVY)
+            top += note_font.size + 34
+        table_w = text_right - MARGIN
+        column_w = table_w / columns
+        head_h = 92
+        row_h = min(int((BAND_TOP - top - 60 - head_h) / max(len(rows) - 1, 1)), 112)
+        size = min((fit(draw, cell, 52, column_w - 60).size for row in rows for cell in row if cell), default=52)
+        total_h = head_h + row_h * (len(rows) - 1)
+        draw.rounded_rectangle([MARGIN, top, MARGIN + table_w, top + total_h], radius=26,
+                               fill=WHITE_BG, outline=BLUE, width=5)
+        draw.rounded_rectangle([MARGIN, top, MARGIN + table_w, top + head_h + 26], radius=26, fill=BLUE)
+        draw.rectangle([MARGIN, top + head_h - 6, MARGIN + table_w, top + head_h], fill=BLUE)
         for index, row in enumerate(rows):
-            y = top + index * row_height
-            if index == 0:
-                draw.rounded_rectangle([box_left - 16, y - 8, box_left + box_width + 16, y + row_height - 12],
-                                       radius=14, fill=theme["bg2"] if light else (30, 44, 96))
+            y = top + (0 if index == 0 else head_h + (index - 1) * row_h)
+            height = head_h if index == 0 else row_h
+            if index > 1:
+                draw.line([MARGIN + 6, y, MARGIN + table_w - 6, y], fill=BLUE, width=3)
             for column, cell in enumerate(row[:columns]):
-                bold = index == 0 or column == 0
-                cell_font = fit(draw, cell, column_size[column], column_width - 24)
-                colour = ink if bold else word_colour if column > 0 and index > 0 else muted
-                draw.text((box_left + column * column_width, y), cell, font=cell_font, fill=colour)
+                if not cell:
+                    continue
+                colour = WHITE_BG if index == 0 else (NAVY if column == 0 else BLUE)
+                font = brand_font(size, "ExtraBold")
+                if index == 0:
+                    centred(draw, cell, font, MARGIN + column_w * (column + 0.5), y + (height - size) / 2, colour)
+                else:
+                    draw.text((MARGIN + column * column_w + 40, y + (height - size) / 2), cell, font=font, fill=colour)
+        for column in range(1, columns):
+            x = MARGIN + column * column_w
+            draw.line([x, top + 6, x, top + total_h - 6], fill=BLUE, width=3)
         return img
 
     if kind == "line":
-        # Одна короткая мысль крупно. Кегль подбирается под длину, но снизу
-        # ограничен: мелкий текст на экране телефона не читается.
-        # На светлой теме герои стоят справа, поэтому фраза занимает левую
-        # половину целиком: узкая колонка ломала предложение на три строки.
-        box_left = 200 if light else text_x
-        box_width = 1060 if light else W - text_x - 160
-        note = (card.get("note") or "").strip()
-        top = 240
-        if note:
-            note_font = fit(draw, note, 42, box_width)
-            draw.text((box_left, 190), note, font=note_font, fill=muted)
-            top = 190 + note_font.size + 46
-        # Перевод стоит под английской фразой всегда, когда он есть: ребёнок
-        # не должен догадываться о смысле по картинке, иначе он повторяет звук,
-        # не понимая слов.
         sub = (card.get("sub") or "").strip()
-        limit = 820 if sub else 960
-        for size in range(int(style["word"] * 1.1), 44, -4):
-            probe = brand_font(size, "Bold")
-            lines = wrap_lines(draw, card["text"], probe, box_width)
-            if top + len(lines) * (probe.size + 16) <= limit:
+        note = (card.get("note") or "").strip()
+        width = text_right - MARGIN
+        y = 150
+        if note and note != card["text"]:
+            note_font = fit(draw, note, 46, width)
+            draw.text((MARGIN, y), note, font=note_font, fill=LABEL)
+            y += note_font.size + 34
+        for size in range(theme["sentence"], 40, -4):
+            probe = brand_font(size, "ExtraBold")
+            lines_ = wrap_lines(draw, card["text"], probe, width)
+            if y + len(lines_) * (probe.size + 18) <= BAND_TOP - 60:
                 break
-        block = len(lines) * (probe.size + 16)
-        y = max(top, int((H - block) / 2)) if not sub else max(top, int((H - block) / 2) - 80)
-        for line in lines:
-            draw.text((box_left, y), line, font=probe, fill=ink)
-            y += probe.size + 16
-        if sub:
-            sub_font = fit(draw, sub, 52, box_width)
-            sub_lines = wrap_lines(draw, sub, sub_font, box_width)
-            y += 26
-            for line in sub_lines:
-                draw.text((box_left, y), line, font=sub_font, fill=muted)
-                y += sub_font.size + 10
+        for line in lines_:
+            draw.text((MARGIN, y), line, font=probe, fill=NAVY)
+            y += probe.size + 18
+        draw_band(draw, age, [("ПЕРЕВОД", sub, GREEN)])
         return img
 
     return img
@@ -571,31 +549,48 @@ async def build(video):
         settled = None
         for step in range(count):
             phase = frame / FPS
+            # Полоса прогресса считает сцены: ребёнок видит, сколько осталось.
+            progress = (si + 1, len(video["scenes"]))
             if step < reveal_frames:
                 img = render_card(scene["card"], style, video["cat"], video["age"], phase,
-                                  reveal=(step + 1) / reveal_frames, back=video.get("background"))
+                                  reveal=(step + 1) / reveal_frames, back=video.get("background"),
+                                  progress=progress, head=video.get("title"))
             else:
                 if settled is None:
                     settled = render_card(scene["card"], style, video["cat"], video["age"], phase,
-                                          back=video.get("background"))
+                                          back=video.get("background"), progress=progress,
+                                          head=video.get("title"))
                 img = settled.copy()
-            if video["cat"]:
+            if video["cat"] and hero_theme_has(video["age"]):
                 # Сын подпрыгивает, когда предмет появляется в кадре.
                 bounce = 0 if step >= reveal_frames else -26 * (1 - (step + 1) / reveal_frames)
                 hero_theme = theme_of(video["age"])
                 talking = who[step]
-                base = style["hero"] * hero_theme.get("hero_scale", 1.0)
-                # Мама крупнее и стоит дальше от текста, сын меньше и ближе к
-                # зрителю: он тот, с кем ребёнок себя связывает.
-                paste_mascot(img, hero_theme["hero_x"] + hero_theme["mom_dx"], 1060 + bounce,
-                             style["hero"] * hero_theme["mom_scale"],
-                             pose="sit" if talking != "mom" else scene.get("pose", "sit"),
-                             face=scene.get("face", "neutral"),
-                             mouth=levels[step] if talking == "mom" else 0.0, phase=phase, who="mom")
-                paste_mascot(img, hero_theme["hero_x"], 1060 + bounce, base,
-                             pose=scene.get("pose", "sit") if talking == "son" else "sit",
-                             face="happy" if talking == "son" else scene.get("face", "neutral"),
-                             mouth=levels[step] if talking == "son" else 0.0, phase=phase + 0.7, who="son")
+                # Пока прислан один персонаж, в кадре стоит он один и крупнее:
+                # смешивать живого героя с нарисованным запасным нельзя, это
+                # видно сразу.
+                alone = has_photo("son") and not has_photo("mom")
+                if alone:
+                    paste_mascot(img, 1660, BAND_TOP + 10 + bounce, hero_theme["hero"] * 1.5,
+                                 pose=scene.get("pose", "sit"),
+                                 face="happy" if talking == "son" else scene.get("face", "neutral"),
+                                 mouth=levels[step] if talking != "none" else 0.0,
+                                 phase=phase, who="son")
+                else:
+                    # Поза берётся из сцены: приветствие стоя, показ у доски
+                    # стоя, объяснение и повтор сидя. Урок, где герои весь час
+                    # сидят, скучнее самого материала.
+                    wanted = POSE_BY_MOOD.get(scene.get("pose", ""),
+                                              POSE_BY_KIND.get(scene["card"]["kind"], "sit-talk"))
+                    mom_pose = wanted if talking == "mom" else ("sit" if wanted in SIT_POSES else "listen")
+                    son_pose = wanted if talking == "son" else ("sit" if wanted in SIT_POSES else "listen")
+                    paste_mascot(img, 1500, BAND_TOP + 14 + bounce, hero_theme["hero"] * 1.5,
+                                 pose=mom_pose, face=scene.get("face", "neutral"),
+                                 mouth=levels[step] if talking == "mom" else 0.0, phase=phase, who="mom")
+                    paste_mascot(img, 1770, BAND_TOP + 14 + bounce, hero_theme["hero"] * 1.02,
+                                 pose=son_pose,
+                                 face="happy" if talking == "son" else scene.get("face", "neutral"),
+                                 mouth=levels[step] if talking == "son" else 0.0, phase=phase + 0.7, who="son")
             pipe.stdin.write(img.tobytes())
             frame += 1
         print(f"  {vid}: сцена {si + 1}/{len(video['scenes'])}", flush=True)

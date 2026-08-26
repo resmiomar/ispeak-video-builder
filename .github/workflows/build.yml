@@ -62,6 +62,15 @@ jobs:
       - name: Картинки к словам
         run: python video/fetch-art.py
 
+      # Персонажи и фоны тоже приезжают зашифрованными: в открытом
+      # репозитории им не место, это лицо продукта.
+      - name: Распаковать персонажей и фоны
+        env:
+          PLAN_KEY: ${{ secrets.PLAN_KEY }}
+        run: |
+          openssl enc -d -aes-256-cbc -pbkdf2 -in assets.tar.enc -out /tmp/assets.tar -pass env:PLAN_KEY
+          tar -xf /tmp/assets.tar -C video/assets
+
       - name: Расшифровать план
         env:
           PLAN_KEY: ${{ secrets.PLAN_KEY }}

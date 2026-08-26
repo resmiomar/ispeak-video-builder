@@ -1,16 +1,16 @@
-# Graph Report - ispeak-video-builder  (2026-08-24)
+# Graph Report - ispeak-video-builder  (2026-08-25)
 
 ## Corpus Check
-- 7 files · ~20,404 words
+- 7 files · ~21,185 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 133 nodes · 156 edges · 16 communities (8 shown, 8 thin omitted)
-- Extraction: 55% EXTRACTED · 45% INFERRED · 0% AMBIGUOUS · INFERRED: 70 edges (avg confidence: 0.52)
+- 157 nodes · 193 edges · 15 communities (9 shown, 6 thin omitted)
+- Extraction: 64% EXTRACTED · 36% INFERRED · 0% AMBIGUOUS · INFERRED: 70 edges (avg confidence: 0.52)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `34607fb6`
+- Built from commit: `3ad8b3d7`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -28,38 +28,37 @@
 - [[_COMMUNITY__place|_place]]
 - [[_COMMUNITY_send.mjs|send.mjs]]
 - [[_COMMUNITY_ease_out_back|ease_out_back]]
-- [[_COMMUNITY_make_background|make_background]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `render_card()` - 11 edges
 2. `background()` - 8 edges
 3. `build()` - 7 edges
-4. `_colour_blob()` - 5 edges
-5. `brand_font()` - 5 edges
-6. `draw_object()` - 4 edges
-7. `scene_background()` - 4 edges
-8. `theme_of()` - 4 edges
-9. `Сторонние материалы` - 3 edges
-10. `asset()` - 3 edges
+4. `_head()` - 6 edges
+5. `_colour_blob()` - 5 edges
+6. `_body()` - 5 edges
+7. `mascot_layer()` - 5 edges
+8. `paste_mascot()` - 5 edges
+9. `brand_font()` - 5 edges
+10. `draw_object()` - 4 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `render_card()` --calls--> `draw_object()`  [INFERRED]
+  video/render.py → video/art.py
+- `background()` --calls--> `scene_background()`  [INFERRED]
   video/render.py → video/art.py
 - `background()` --calls--> `make_background()`  [INFERRED]
   video/render.py → video/art.py
 - `render_card()` --calls--> `ease_out_back()`  [INFERRED]
   video/render.py → video/art.py
-- `background()` --calls--> `scene_background()`  [INFERRED]
-  video/render.py → video/art.py
 
 ## Import Cycles
 - None detected.
 
-## Communities (16 total, 8 thin omitted)
+## Communities (15 total, 6 thin omitted)
 
 ### Community 1 - "render.py"
-Cohesion: 0.16
-Nodes (21): background(), background_photo(), brand_font(), build(), centred(), duration(), envelope(), fit() (+13 more)
+Cohesion: 0.13
+Nodes (25): ease_out_back(), make_background(), Слои мягких пятен. Медленно плывут, поэтому кадр не мёртвый., Появление с лёгким перелётом: предмет как будто прыгает в кадр., background(), background_photo(), brand_font(), build() (+17 more)
 
 ### Community 2 - "_colour_blob"
 Cohesion: 0.40
@@ -81,25 +80,29 @@ Nodes (4): Окно: рама и свет. Одно окно делает сте
 Cohesion: 0.33
 Nodes (6): AGES, caption(), files, KINDS, OUT, send()
 
+### Community 14 - "ease_out_back"
+Cohesion: 0.13
+Nodes (23): _arm(), _bezier(), _body(), _ears(), _eyes(), _head(), mascot_layer(), mouth_spot() (+15 more)
+
 ## Knowledge Gaps
 - **6 isolated node(s):** `OUT`, `KINDS`, `AGES`, `files`, `Noto Emoji (Google)` (+1 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **8 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **6 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `render_card()` connect `render.py` to `draw_object`, `ease_out_back`?**
-  _High betweenness centrality (0.026) - this node is a cross-community bridge._
+- **Why does `render_card()` connect `render.py` to `draw_object`?**
+  _High betweenness centrality (0.018) - this node is a cross-community bridge._
 - **Why does `draw_object()` connect `draw_object` to `art.py`, `render.py`?**
-  _High betweenness centrality (0.022) - this node is a cross-community bridge._
-- **Why does `background()` connect `render.py` to `scene_background`, `make_background`?**
-  _High betweenness centrality (0.022) - this node is a cross-community bridge._
+  _High betweenness centrality (0.016) - this node is a cross-community bridge._
+- **Why does `background()` connect `render.py` to `scene_background`?**
+  _High betweenness centrality (0.015) - this node is a cross-community bridge._
 - **Are the 2 inferred relationships involving `render_card()` (e.g. with `draw_object()` and `ease_out_back()`) actually correct?**
   _`render_card()` has 2 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 2 inferred relationships involving `background()` (e.g. with `make_background()` and `scene_background()`) actually correct?**
   _`background()` has 2 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `OUT`, `KINDS`, `AGES` to the rest of the system?**
-  _26 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **What connects `Лицо крупным планом со стрелкой на нос: сам по себе нос не читается.`, `Цвет показываем кляксой краски: у слова «red» предмета нет.`, `Файл картинки для слова, если он положен. Иначе None.` to the rest of the system?**
+  _35 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `art.py` be split into smaller, more focused modules?**
   _Cohesion score 0.028985507246376812 - nodes in this community are weakly interconnected._
